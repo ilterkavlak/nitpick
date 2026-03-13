@@ -134,10 +134,10 @@ export function mergeConfigWithFlags(
     ? flags.roles.filter(isValidRole)
     : config.roles ?? ALL_ROLES;
 
-  const writeReport = flags.writeReport ?? config.report ?? true;
+  const writeReport = flags.writeReport ?? config.report ?? false;
   const outputPath = flags.outputPath ?? config.output;
   const auto = flags.auto ?? config.auto ?? false;
-  const postReview = flags.postReview ?? config.postReview ?? false;
+  const postReview = flags.postReview ?? config.postReview ?? true;
   const summary = flags.summary ?? (config.summary !== false); // default true
 
   // Merge reviewer configs: config file as base, CLI flags override
