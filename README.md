@@ -224,8 +224,6 @@ scanners:
 
 CLI flags always override `.nitpik.yaml` values.
 
-Legacy compatibility: `.gavel.yaml` and `.gavel.yml` are still supported if present.
-
 ## Scanners
 
 ### Secret detection

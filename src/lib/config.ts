@@ -18,11 +18,6 @@ export function loadConfig(dir?: string): NitpikConfig {
     const altPath = resolve(searchDir, ".nitpik.yml");
     if (existsSync(altPath)) return parseConfigFile(altPath);
 
-    // Backward compatibility with old Gavel config names
-    const legacyYaml = resolve(searchDir, ".gavel.yaml");
-    if (existsSync(legacyYaml)) return parseConfigFile(legacyYaml);
-    const legacyYml = resolve(searchDir, ".gavel.yml");
-    if (existsSync(legacyYml)) return parseConfigFile(legacyYml);
     return {};
   }
 

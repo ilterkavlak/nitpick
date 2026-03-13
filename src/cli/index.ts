@@ -87,7 +87,7 @@ async function main() {
     }
   }
 
-  // Load .nitpik.yaml (with legacy .gavel fallback) config
+  // Load .nitpik.yaml config
   const config = loadConfig();
 
   // No args at all → interactive
