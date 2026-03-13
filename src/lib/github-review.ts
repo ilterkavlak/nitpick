@@ -54,7 +54,7 @@ interface GitHubValidationError {
     field?: string;
     code?: string;
     message?: string;
-  }>;
+  }> | string;
   documentation_url?: string;
 }
 
@@ -66,37 +66,62 @@ function parseGitHubError(body: string): GitHubValidationError | null {
   }
 }
 
+/** Collect all human-readable error strings from GitHub's various response shapes.
+ *  GitHub may return errors as: a single string, an array of strings, or an array of objects. */
+function collectErrorStrings(err: GitHubValidationError): string[] {
+  const msgs: string[] = [];
+  if (err.message) msgs.push(err.message);
+  if (typeof err.errors === "string") {
+    msgs.push(err.errors);
+  } else if (Array.isArray(err.errors)) {
+    for (const e of err.errors) {
+      if (typeof e === "string") {
+        msgs.push(e);
+      } else {
+        if (e.message) msgs.push(e.message);
+      }
+    }
+  }
+  return msgs.map((m) => m.toLowerCase());
+}
+
 function isStaleCommitError(err: GitHubValidationError): boolean {
-  return (
-    err.errors?.some(
-      (e) =>
-        e.message?.includes("commit_id") ||
-        e.message?.includes("not part of the pull request")
-    ) ?? false
+  const msgs = collectErrorStrings(err);
+  return msgs.some(
+    (m) => m.includes("commit_id") || m.includes("not part of the pull request")
   );
 }
 
 function isOwnPrError(err: GitHubValidationError): boolean {
-  return (
-    err.message?.includes("can not request changes") === true ||
-    err.errors?.some(
-      (e) =>
-        e.message?.includes("request changes") ||
-        e.message?.includes("own pull request")
-    ) === true
+  const msgs = collectErrorStrings(err);
+  return msgs.some(
+    (m) =>
+      m.includes("can not approve") ||
+      m.includes("cannot approve") ||
+      m.includes("can not request changes") ||
+      m.includes("cannot request changes") ||
+      m.includes("own pull request")
   );
 }
 
 function isCommentPositionError(err: GitHubValidationError): boolean {
-  return (
-    err.errors?.some(
-      (e) =>
-        e.field?.includes("line") ||
-        e.field?.includes("position") ||
-        e.message?.includes("must be part of the diff") ||
-        e.message?.includes("pull_request_review_thread")
-    ) ?? false
-  );
+  const msgs = collectErrorStrings(err);
+  if (msgs.some(
+    (m) =>
+      m.includes("must be part of the diff") ||
+      m.includes("pull_request_review_thread")
+  )) {
+    return true;
+  }
+  // Also check structured field names for object-style errors
+  if (Array.isArray(err.errors)) {
+    for (const e of err.errors) {
+      if (typeof e !== "string" && (e.field?.includes("line") || e.field?.includes("position"))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // ── Diff parser — extract commentable lines ───────────────────────
@@ -326,6 +351,35 @@ export interface ReviewPostResult {
   warnings: string[];
 }
 
+function formatPostFailure(
+  res: { status: number; error: GitHubValidationError | null; raw: string }
+): string {
+  const err = res.error;
+  const parts: string[] = [];
+  if (err) {
+    if (err.message) parts.push(err.message);
+    if (Array.isArray(err.errors) && err.errors.length > 0) {
+      const expanded = err.errors.map((e) => {
+        if (typeof e === "string") return e;
+        const fields = [e.resource, e.field, e.code].filter(Boolean).join("/");
+        if (fields && e.message) return `${fields}: ${e.message}`;
+        if (fields) return fields;
+        return e.message ?? "validation error";
+      });
+      parts.push(expanded.join(" | "));
+    } else if (typeof err.errors === "string" && err.errors.trim().length > 0) {
+      parts.push(err.errors.trim());
+    }
+    if (err.documentation_url) {
+      parts.push(`docs: ${err.documentation_url}`);
+    }
+  }
+  if (parts.length === 0 && res.raw.trim().length > 0) {
+    parts.push(res.raw.replace(/\s+/g, " ").slice(0, 500));
+  }
+  return `${res.status} ${parts.join(" || ")}`;
+}
+
 export async function submitPrReview(
   owner: string,
   repo: string,
@@ -339,6 +393,10 @@ export async function submitPrReview(
 ): Promise<ReviewPostResult> {
   const emit = onProgress ?? (() => {});
   const warnings: string[] = [];
+  const pushWarn = (message: string) => {
+    warnings.push(message);
+    emit({ step: "warn", message });
+  };
   let event = mapRecommendation(verdict.mergeRecommendation);
   let commitId = headSha;
 
@@ -366,21 +424,18 @@ export async function submitPrReview(
       });
 
       if (skippedComments > 0) {
-        warnings.push(
-          `${skippedComments} inline comment(s) skipped (line not in diff)`
-        );
+        pushWarn(`${skippedComments} inline comment(s) skipped (line not in diff)`);
       }
     } else {
       emit({ step: "diff_fetch", status: "skip" });
+      pushWarn("Could not fetch diff for inline validation; proceeding with raw positions");
     }
   }
 
   // GitHub limits to 50 comments per review
   if (validComments.length > 50) {
     emit({ step: "warn", message: `Truncated to 50 comments (${validComments.length} total)` });
-    warnings.push(
-      `Truncated from ${validComments.length} to 50 inline comments (GitHub limit)`
-    );
+    pushWarn(`Truncated from ${validComments.length} to 50 inline comments (GitHub limit)`);
     validComments = validComments.slice(0, 50);
   }
 
@@ -419,12 +474,13 @@ export async function submitPrReview(
 
   // ── Diagnose & retry ────────────────────────────────────────
   const err = r1.error;
+  emit({ step: "warn", message: `Initial review submission failed: ${formatPostFailure(r1)}` });
 
   // Strategy A: comment position still invalid → drop comments
   if (comments && err && isCommentPositionError(err)) {
     attempt++;
     emit({ step: "retry", strategy: "drop_comments", detail: "Inline comment positions invalid" });
-    warnings.push("Inline comments removed (position validation failed)");
+    pushWarn("Inline comments removed after GitHub rejected comment positions");
 
     emit({ step: "submit", status: "start", event, commentCount: 0, attempt });
     const r2 = await postReview(owner, repo, prNumber, {
@@ -436,6 +492,7 @@ export async function submitPrReview(
       emit({ step: "submit", status: "done", url: r2.url });
       return { url: r2.url, warnings };
     }
+    emit({ step: "warn", message: `Retry without inline comments failed: ${formatPostFailure(r2)}` });
   }
 
   // Strategy B: stale commit → fetch fresh SHA
@@ -445,48 +502,78 @@ export async function submitPrReview(
 
     const freshSha = await fetchCurrentHeadSha(owner, repo, prNumber);
     if (freshSha && freshSha !== commitId) {
-      warnings.push(
-        `HEAD SHA updated (${commitId.slice(0, 7)} → ${freshSha.slice(0, 7)})`
-      );
+      pushWarn(`HEAD SHA updated (${commitId.slice(0, 7)} → ${freshSha.slice(0, 7)})`);
       commitId = freshSha;
-      emit({ step: "submit", status: "start", event, commentCount: 0, attempt });
+      emit({ step: "submit", status: "start", event, commentCount: comments?.length ?? 0, attempt });
       const r3 = await postReview(owner, repo, prNumber, {
         commit_id: commitId,
         body,
         event,
+        comments,
       });
       if (r3.ok) {
         emit({ step: "submit", status: "done", url: r3.url });
         return { url: r3.url, warnings };
       }
+      emit({ step: "warn", message: `Retry with refreshed SHA failed: ${formatPostFailure(r3)}` });
     }
   }
 
-  // Strategy C: can't request changes on own PR → downgrade
-  if (err && isOwnPrError(err) && event === "REQUEST_CHANGES") {
+  // Strategy C: can't approve / request changes on own PR → downgrade to COMMENT
+  if (err && isOwnPrError(err) && event !== "COMMENT") {
     attempt++;
-    emit({ step: "retry", strategy: "downgrade_event", detail: "Cannot request changes on own PR" });
-    warnings.push("Downgraded to COMMENT (cannot request changes on own PR)");
+    const reason = event === "APPROVE" ? "Cannot approve own PR" : "Cannot request changes on own PR";
+    emit({ step: "retry", strategy: "downgrade_event", detail: reason });
+    pushWarn(`Downgraded to COMMENT (${reason.toLowerCase()})`);
     event = "COMMENT";
-    emit({ step: "submit", status: "start", event, commentCount: 0, attempt });
+    emit({ step: "submit", status: "start", event, commentCount: comments?.length ?? 0, attempt });
     const r4 = await postReview(owner, repo, prNumber, {
       commit_id: commitId,
       body,
       event,
+      comments,
     });
     if (r4.ok) {
       emit({ step: "submit", status: "done", url: r4.url });
       return { url: r4.url, warnings };
     }
+    emit({ step: "warn", message: `Retry as COMMENT failed: ${formatPostFailure(r4)}` });
   }
 
-  // Strategy D: last resort
+  // Strategy D: try COMMENT with inline comments before giving up on them
+  if (comments && comments.length > 0 && event !== "COMMENT") {
+    attempt++;
+    event = "COMMENT";
+    pushWarn("Downgraded to COMMENT, retrying with inline comments");
+    emit({ step: "retry", strategy: "downgrade_keep_comments", detail: "COMMENT with inline comments" });
+
+    const freshSha1 = await fetchCurrentHeadSha(owner, repo, prNumber);
+    if (freshSha1) commitId = freshSha1;
+
+    emit({ step: "submit", status: "start", event, commentCount: comments.length, attempt });
+    const r5 = await postReview(owner, repo, prNumber, {
+      commit_id: commitId,
+      body,
+      event,
+      comments,
+    });
+    if (r5.ok) {
+      emit({ step: "submit", status: "done", url: r5.url });
+      return { url: r5.url, warnings };
+    }
+    emit({ step: "warn", message: `Retry as COMMENT with inline comments failed: ${formatPostFailure(r5)}` });
+  }
+
+  // Strategy E: last resort — body only, no inline comments
   attempt++;
   if (event !== "COMMENT") {
     event = "COMMENT";
-    warnings.push("Downgraded to COMMENT as final fallback");
+    pushWarn("Downgraded to COMMENT as final fallback");
   }
-  emit({ step: "retry", strategy: "last_resort", detail: "Final attempt as COMMENT" });
+  if (comments && comments.length > 0) {
+    pushWarn("Final fallback posts review body only; inline comments are omitted");
+  }
+  emit({ step: "retry", strategy: "last_resort", detail: "Final attempt as COMMENT, body only" });
 
   const freshSha = await fetchCurrentHeadSha(owner, repo, prNumber);
   if (freshSha) commitId = freshSha;
@@ -505,7 +592,7 @@ export async function submitPrReview(
 
   // All attempts failed
   const details = rFinal.error;
-  const errMsg = details?.errors?.map((e) => e.message).join("; ") ?? details?.message ?? rFinal.raw.slice(0, 300);
+  const errMsg = details ? collectErrorStrings(details).join("; ") || rFinal.raw.slice(0, 300) : rFinal.raw.slice(0, 300);
   emit({ step: "fail", message: errMsg });
   throw new Error(`GitHub review failed after all retries: ${rFinal.status} — ${errMsg}`);
 }
