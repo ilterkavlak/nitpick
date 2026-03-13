@@ -62,7 +62,7 @@ export function renderEvent(_arenaId: string, envelope: ArenaEventEnvelope): voi
   switch (event.type) {
     case "arena_status":
       if (event.status === "running") {
-        console.log(`\n${BRAND}${B}  🔎  Nitpik${R}  ${D}review started${R}\n`);
+        console.log(`\n${BRAND}${B}  🔎  Nitpick${R}  ${D}review started${R}\n`);
       } else if (event.status === "completed") {
         console.log(`\n${ACCENT}${B}  ✓  Review completed${R}\n`);
       } else if (event.status === "failed") {

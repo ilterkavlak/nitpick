@@ -111,7 +111,7 @@ export interface ScannerConfig {
   commands?: string[];
 }
 
-export interface NitpikConfig {
+export interface NitpickConfig {
   roles?: ReviewerRole[];
   model?: string;
   auto?: boolean;

@@ -1,4 +1,4 @@
-# Nitpik
+# Nitpick
 
 A CLI tool that runs multiple AI reviewer roles and automated scanners against a GitHub pull request in parallel, lets you triage the findings, then generates a verdict with a merge recommendation and a markdown report.
 
@@ -15,7 +15,7 @@ A CLI tool that runs multiple AI reviewer roles and automated scanners against a
 - **Secret detection** — regex-based scanning of added lines for API keys, tokens, private keys, and credentials
 - **Dependency vulnerability scanning** — queries OSV.dev for known vulnerabilities in newly added dependencies
 - **Linter integration** — auto-detects and runs project linters inside a sandbox, reports issues on changed files
-- **`.nitpik.yaml` config** — set default roles, model, scanners, and reviewer overrides per repository
+- **`.nitpick.yaml` config** — set default roles, model, scanners, and reviewer overrides per repository
 - **Live terminal output** — severity-colored findings stream in as reviewers work
 - **Markdown report** — summary, blockers, all findings, risk score, merge recommendation, and suggested commits
 
@@ -35,18 +35,18 @@ Fill in your `.env`:
 | `GITHUB_REVIEW_TOKEN` | Fine-grained PAT with **Pull requests: write** (optional if `gh auth token` has that scope; used for `--post-review`) |
 
 GitHub token fallback:
-- If `GITHUB_READ_TOKEN` / `GITHUB_REVIEW_TOKEN` are not set, Nitpik automatically tries `gh auth token`.
+- If `GITHUB_READ_TOKEN` / `GITHUB_REVIEW_TOKEN` are not set, Nitpick automatically tries `gh auth token`.
 - Run `gh auth login` once to use this flow.
 
 Box API key fallback (checked in this order):
 1. `UPSTASH_BOX_API_KEY`
-2. Credentials file at `~/.box/credentials` (or `NITPIK_BOX_CREDENTIALS_FILE`)
-3. macOS Keychain via `NITPIK_BOX_KEYCHAIN_SERVICE` (default: `nitpik_upstash_box_api_key`)
-4. 1Password via `NITPIK_BOX_OP_REF` (`op read <ref>`)
-5. Custom command via `NITPIK_BOX_API_KEY_COMMAND`
+2. Credentials file at `~/.box/credentials` (or `NITPICK_BOX_CREDENTIALS_FILE`)
+3. macOS Keychain via `NITPICK_BOX_KEYCHAIN_SERVICE` (default: `nitpick_upstash_box_api_key`)
+4. 1Password via `NITPICK_BOX_OP_REF` (`op read <ref>`)
+5. Custom command via `NITPICK_BOX_API_KEY_COMMAND`
 
 First-run helper:
-- If no Box key is found and you are in interactive mode, Nitpik prompts for the key and asks where to save it:
+- If no Box key is found and you are in interactive mode, Nitpick prompts for the key and asks where to save it:
   - Auto (first available secure store)
   - macOS Keychain
   - `~/.box/credentials`
@@ -56,16 +56,16 @@ Examples:
 
 ```bash
 # macOS Keychain (store once)
-security add-generic-password -a "$USER" -s nitpik_upstash_box_api_key -w "<YOUR_UPSTASH_BOX_API_KEY>" -U
+security add-generic-password -a "$USER" -s nitpick_upstash_box_api_key -w "<YOUR_UPSTASH_BOX_API_KEY>" -U
 
 # 1Password (in .env)
-NITPIK_BOX_OP_REF=op://Dev/Nitpik/UPSTASH_BOX_API_KEY
+NITPICK_BOX_OP_REF=op://Dev/Nitpick/UPSTASH_BOX_API_KEY
 
 # Credentials file location override (optional)
-NITPIK_BOX_CREDENTIALS_FILE=~/.box/credentials
+NITPICK_BOX_CREDENTIALS_FILE=~/.box/credentials
 
 # Custom command (in .env)
-NITPIK_BOX_API_KEY_COMMAND='security find-generic-password -a "$USER" -s nitpik_upstash_box_api_key -w'
+NITPICK_BOX_API_KEY_COMMAND='security find-generic-password -a "$USER" -s nitpick_upstash_box_api_key -w'
 ```
 
 Security model:
@@ -77,21 +77,21 @@ Install as executable:
 
 ```bash
 npm pack
-npm i -g ./nitpik-*.tgz
-nitpik --help
+npm i -g ./nitpick-*.tgz
+nitpick --help
 ```
 
-This installs a real global package copy, so `nitpik` keeps working even if you delete this repo folder later.
+This installs a real global package copy, so `nitpick` keeps working even if you delete this repo folder later.
 
 If you hit issues after updating, do a clean reinstall:
 
 ```bash
-npm uninstall -g nitpik
-rm -f nitpik-*.tgz
+npm uninstall -g nitpick
+rm -f nitpick-*.tgz
 npm pack
-npm i -g --force ./nitpik-*.tgz
+npm i -g --force ./nitpick-*.tgz
 hash -r
-nitpik --help
+nitpick --help
 ```
 
 Development-only alternative:
@@ -106,13 +106,13 @@ Uninstall:
 
 ```bash
 # Remove global install (tarball/registry install)
-npm uninstall -g nitpik
+npm uninstall -g nitpick
 ```
 
 If you installed with `npm link`, unlink it too:
 
 ```bash
-npm unlink -g nitpik
+npm unlink -g nitpick
 ```
 
 ## Usage
@@ -155,7 +155,7 @@ npm run review -- https://github.com/org/repo/pull/42
 | `--post-review` | Post verdict and inline comments as a GitHub PR review |
 | `--help` | Show help |
 
-Note: when `--post-review` is enabled, Nitpik can still post a review body even if there are zero final findings (for example, after verification/triage).
+Note: when `--post-review` is enabled, Nitpick can still post a review body even if there are zero final findings (for example, after verification/triage).
 
 ### Examples
 
@@ -181,7 +181,7 @@ npm run review -- https://github.com/org/repo/pull/42 --auto --post-review
 
 ## Configuration
 
-Create a `.nitpik.yaml` in your repository root to set defaults:
+Create a `.nitpick.yaml` in your repository root to set defaults:
 
 ```yaml
 # Default reviewer roles
@@ -222,7 +222,7 @@ scanners:
   dependencies: true
 ```
 
-CLI flags always override `.nitpik.yaml` values.
+CLI flags always override `.nitpick.yaml` values.
 
 ## Scanners
 
@@ -243,7 +243,7 @@ Parses lockfile diffs (package-lock.json, requirements.txt, go.sum, Gemfile.lock
 
 ### Linter integration
 
-Auto-detects the project's linter (ESLint, pylint, golangci-lint, etc.) or uses commands from `.nitpik.yaml`. Runs inside an Upstash Box sandbox and reports issues on changed files.
+Auto-detects the project's linter (ESLint, pylint, golangci-lint, etc.) or uses commands from `.nitpick.yaml`. Runs inside an Upstash Box sandbox and reports issues on changed files.
 
 ## Available models
 

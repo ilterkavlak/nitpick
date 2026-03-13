@@ -1,5 +1,5 @@
 {
-  "name": "nitpik",
+  "name": "nitpick",
   "version": "0.3.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     ".env.example"
   ],
   "bin": {
-    "nitpik": "./bin/nitpik.mjs"
+    "nitpick": "./bin/nitpick.mjs"
   },
   "scripts": {
     "review": "tsx src/cli/index.ts review",

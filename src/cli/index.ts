@@ -15,10 +15,10 @@ const MUTED = `${E}[38;5;240m`;
 
 function printUsage() {
   console.log(`
-  ${BRAND}${B}🔎  Nitpik${R}  ${D}AI-powered PR review${R}
+  ${BRAND}${B}🔎  Nitpick${R}  ${D}AI-powered PR review${R}
 
   ${B}Usage${R}
-    ${ACCENT}nitpik review${R} ${D}[github-pr-url] [options]${R}
+    ${ACCENT}nitpick review${R} ${D}[github-pr-url] [options]${R}
 
     If no URL is provided, launches interactive mode to browse
     your repositories and open PRs.
@@ -33,15 +33,15 @@ function printUsage() {
     ${ACCENT}--help${R}             Show this help message
 
   ${B}Config${R}
-    Place a ${ACCENT}.nitpik.yaml${R} in your repo root to set defaults for roles,
+    Place a ${ACCENT}.nitpick.yaml${R} in your repo root to set defaults for roles,
     model, scanners, and more. CLI flags override config file values.
 
   ${B}Examples${R}
-    ${MUTED}$${R} nitpik review
-    ${MUTED}$${R} nitpik review https://github.com/org/repo/pull/42
-    ${MUTED}$${R} nitpik review https://github.com/org/repo/pull/42 --roles security,performance
-    ${MUTED}$${R} nitpik review https://github.com/org/repo/pull/42 --auto --post-review
-    ${MUTED}$${R} nitpik review https://github.com/org/repo/pull/42 --no-report
+    ${MUTED}$${R} nitpick review
+    ${MUTED}$${R} nitpick review https://github.com/org/repo/pull/42
+    ${MUTED}$${R} nitpick review https://github.com/org/repo/pull/42 --roles security,performance
+    ${MUTED}$${R} nitpick review https://github.com/org/repo/pull/42 --auto --post-review
+    ${MUTED}$${R} nitpick review https://github.com/org/repo/pull/42 --no-report
 `);
 }
 
@@ -87,7 +87,7 @@ async function main() {
     }
   }
 
-  // Load .nitpik.yaml config
+  // Load .nitpick.yaml config
   const config = loadConfig();
 
   // No args at all → interactive

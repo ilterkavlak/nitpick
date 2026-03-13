@@ -37,7 +37,7 @@ export interface GitHubPr {
 function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
-    "User-Agent": "nitpik-cli",
+    "User-Agent": "nitpick-cli",
   };
   const token = getGitReadToken();
   if (token) {

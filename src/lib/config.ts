@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
-import type { NitpikConfig, ReviewerRole, ReviewerConfig } from "./types";
+import type { NitpickConfig, ReviewerRole, ReviewerConfig } from "./types";
 
 const ALL_ROLES: ReviewerRole[] = ["security", "performance", "architecture", "testing", "dx"];
 
@@ -9,13 +9,13 @@ function isValidRole(r: string): r is ReviewerRole {
   return ALL_ROLES.includes(r as ReviewerRole);
 }
 
-export function loadConfig(dir?: string): NitpikConfig {
+export function loadConfig(dir?: string): NitpickConfig {
   const searchDir = dir ?? process.cwd();
-  const filePath = resolve(searchDir, ".nitpik.yaml");
+  const filePath = resolve(searchDir, ".nitpick.yaml");
 
   if (!existsSync(filePath)) {
-    // Also check .nitpik.yml
-    const altPath = resolve(searchDir, ".nitpik.yml");
+    // Also check .nitpick.yml
+    const altPath = resolve(searchDir, ".nitpick.yml");
     if (existsSync(altPath)) return parseConfigFile(altPath);
 
     return {};
@@ -24,13 +24,13 @@ export function loadConfig(dir?: string): NitpikConfig {
   return parseConfigFile(filePath);
 }
 
-function parseConfigFile(filePath: string): NitpikConfig {
+function parseConfigFile(filePath: string): NitpickConfig {
   const content = readFileSync(filePath, "utf-8");
   const raw = parseYaml(content);
 
   if (!raw || typeof raw !== "object") return {};
 
-  const config: NitpikConfig = {};
+  const config: NitpickConfig = {};
 
   if (Array.isArray(raw.roles)) {
     config.roles = raw.roles.filter(isValidRole);
@@ -112,7 +112,7 @@ export interface MergedOptions {
 }
 
 export function mergeConfigWithFlags(
-  config: NitpikConfig,
+  config: NitpickConfig,
   flags: {
     roles?: string[];
     writeReport?: boolean;

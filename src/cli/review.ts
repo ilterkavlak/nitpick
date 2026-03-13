@@ -103,7 +103,7 @@ export async function runReview(
   const scanners = merged?.scanners ?? { secrets: true, linter: true, dependencies: true };
 
   // ── Setup phase: visible status for every step ───────────────
-  status.header("🔎  Nitpik");
+  status.header("🔎  Nitpick");
 
   // Validate env
   try {

@@ -291,7 +291,7 @@ function render(): void {
   const buf: string[] = [];
 
   // ── Header ─────────────────────────────────────────────────────
-  const logo = `${BRAND}${B}  🔎  Nitpik${R}`;
+  const logo = `${BRAND}${B}  🔎  Nitpick${R}`;
   const sub = `${MUTED}${S.title}${R}`;
   const hPad = Math.max(1, tw - vlen(logo) - vlen(sub) - time.length - 6);
   buf.push("");

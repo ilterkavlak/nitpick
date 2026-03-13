@@ -41,7 +41,7 @@ function renderPage(step: number, title: string): void {
 
   // Banner
   console.log("");
-  console.log(`  ${BRAND}${B}  🔎  Nitpik${R}`);
+  console.log(`  ${BRAND}${B}  🔎  Nitpick${R}`);
   console.log(`  ${MUTED}  AI-powered PR review${R}`);
   console.log("");
 
@@ -428,7 +428,7 @@ export async function runInteractive(
   // Final confirmation page
   clearScreen();
   console.log("");
-  console.log(`  ${BRAND}${B}  🔎  Nitpik${R}`);
+  console.log(`  ${BRAND}${B}  🔎  Nitpick${R}`);
   console.log(`  ${MUTED}  AI-powered PR review${R}`);
   console.log("");
 
