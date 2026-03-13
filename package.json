@@ -1,0 +1,30 @@
+{
+  "name": "nitpik",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nitpik": "./src/cli/index.ts",
+    "prlens": "./src/cli/index.ts"
+  },
+  "scripts": {
+    "review": "tsx src/cli/index.ts review",
+    "start": "tsx src/cli/index.ts",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.3.0",
+    "@upstash/box": "latest",
+    "nanoid": "^5",
+    "tsx": "^4",
+    "yaml": "^2.8.2",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
+    "eslint": "^9.39.4",
+    "typescript": "^5"
+  }
+}
