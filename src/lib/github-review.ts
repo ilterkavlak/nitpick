@@ -16,7 +16,6 @@ type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
 function mapRecommendation(rec: string): ReviewEvent {
   switch (rec) {
-    case "approve": return "APPROVE";
     case "request_changes": return "REQUEST_CHANGES";
     default: return "COMMENT";
   }
