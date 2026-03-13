@@ -111,7 +111,7 @@ export interface ScannerConfig {
   commands?: string[];
 }
 
-export interface PrLensConfig {
+export interface NitpikConfig {
   roles?: ReviewerRole[];
   model?: string;
   auto?: boolean;

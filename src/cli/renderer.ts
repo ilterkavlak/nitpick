@@ -1,4 +1,4 @@
-import type { ArenaEventEnvelope, Severity, AnyRole, PrSummary } from "@/lib/types";
+import type { ArenaEventEnvelope, Severity, AnyRole, PrSummary } from "../lib/types";
 
 const E = "\x1b";
 const R = `${E}[0m`;

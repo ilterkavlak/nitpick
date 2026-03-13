@@ -1,6 +1,6 @@
-import { generateId } from "@/lib/utils";
-import type { ArenaSession, ReviewerRole, ReviewerRun } from "@/lib/types";
-import { fetchPrMetadata } from "@/lib/github";
+import { generateId } from "../utils";
+import type { ArenaSession, ReviewerRole, ReviewerRun } from "../types";
+import { fetchPrMetadata } from "../github";
 import { setArena, setReviewers } from "./status";
 
 export async function createArena(

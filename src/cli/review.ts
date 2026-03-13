@@ -1,17 +1,17 @@
-import { parsePrUrl } from "@/lib/utils";
-import { createArena } from "@/lib/arena/create";
-import { setOnEvent, clearEvents } from "@/lib/arena/events";
-import { publishEvent } from "@/lib/arena/events";
-import { getFindings, clearFindings, saveFinding } from "@/lib/arena/findings";
+import { parsePrUrl } from "../lib/utils";
+import { createArena } from "../lib/arena/create";
+import { setOnEvent, clearEvents } from "../lib/arena/events";
+import { publishEvent } from "../lib/arena/events";
+import { getFindings, clearFindings, saveFinding } from "../lib/arena/findings";
 import {
   updateArenaStatus,
   getArena,
   getAllReviewers,
   checkAllReviewersDone,
   clearArenaState,
-} from "@/lib/arena/status";
-import { executeReviewerJob } from "@/lib/reviewer/worker";
-import { generateVerdict, getVerdict, clearVerdict } from "@/lib/arena/verdict";
+} from "../lib/arena/status";
+import { executeReviewerJob } from "../lib/reviewer/worker";
+import { generateVerdict, getVerdict, clearVerdict } from "../lib/arena/verdict";
 import { renderEvent, renderVerdict, renderSummary } from "./renderer";
 import {
   startDashboard,
@@ -24,21 +24,21 @@ import {
 import type { DashboardSummary } from "./dashboard";
 import { generateMarkdownReport } from "./markdown";
 import { triageFindings } from "./triage";
-import { fetchPrDiff } from "@/lib/github";
-import { generatePrSummary } from "@/lib/summarizer";
-import { scanSecretsInDiff } from "@/lib/scanners/secrets";
-import { scanDependencies } from "@/lib/scanners/dependencies";
-import { scanWithLinter } from "@/lib/scanners/linter";
-import { submitPrReview } from "@/lib/github-review";
-import type { PostProgress } from "@/lib/github-review";
-import { cleanupAllBoxes, getActiveBoxCount } from "@/lib/box";
+import { fetchPrDiff } from "../lib/github";
+import { generatePrSummary } from "../lib/summarizer";
+import { scanSecretsInDiff } from "../lib/scanners/secrets";
+import { scanDependencies } from "../lib/scanners/dependencies";
+import { scanWithLinter } from "../lib/scanners/linter";
+import { submitPrReview } from "../lib/github-review";
+import type { PostProgress } from "../lib/github-review";
+import { cleanupAllBoxes, getActiveBoxCount } from "../lib/box";
 import {
   ensureBoxApiKeyInteractive,
   requireBoxApiKey,
   requireGitReadToken,
   requireGitReviewToken,
-} from "@/lib/auth";
-import { verifyFindings } from "@/lib/reviewer/verifier";
+} from "../lib/auth";
+import { verifyFindings } from "../lib/reviewer/verifier";
 import type {
   ReviewerRole,
   ReviewerConfig,
@@ -46,8 +46,8 @@ import type {
   PrSummary,
   Finding,
   Verdict,
-} from "@/lib/types";
-import type { MergedOptions } from "@/lib/config";
+} from "../lib/types";
+import type { MergedOptions } from "../lib/config";
 import { writeFileSync } from "fs";
 import { status } from "./status";
 

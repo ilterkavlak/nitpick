@@ -1,4 +1,4 @@
-import type { ArenaEvent, ArenaEventEnvelope } from "@/lib/types";
+import type { ArenaEvent, ArenaEventEnvelope } from "../types";
 
 const events = new Map<string, ArenaEventEnvelope[]>();
 let seqCounter = 0;

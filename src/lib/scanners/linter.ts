@@ -1,6 +1,6 @@
-import { createReviewerBox, setupRepo, untrackBox } from "@/lib/box";
-import { generateId } from "@/lib/utils";
-import type { Finding, Severity } from "@/lib/types";
+import { createReviewerBox, setupRepo, untrackBox } from "../box";
+import { generateId } from "../utils";
+import type { Finding, Severity } from "../types";
 
 const AUTO_DETECT_PROMPT = `Look at the repository root and determine which linter commands are available.
 Check for:

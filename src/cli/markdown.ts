@@ -1,4 +1,4 @@
-import type { ArenaSession, Finding, Verdict, Severity, PrSummary } from "@/lib/types";
+import type { ArenaSession, Finding, Verdict, Severity, PrSummary } from "../lib/types";
 
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 

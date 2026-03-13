@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { createReviewerBox, setupRepo, untrackBox } from "@/lib/box";
-import type { Finding } from "@/lib/types";
+import { createReviewerBox, setupRepo, untrackBox } from "../box";
+import type { Finding } from "../types";
 
 // Verifier uses a different provider than the reviewers (OpenAI GPT-5.x latest)
 const VERIFIER_DEFAULT_MODEL = "GPT_5_3_Codex";

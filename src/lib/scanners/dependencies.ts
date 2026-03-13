@@ -1,5 +1,5 @@
-import { generateId } from "@/lib/utils";
-import type { Finding, Severity } from "@/lib/types";
+import { generateId } from "../utils";
+import type { Finding, Severity } from "../types";
 
 interface OsvVulnerability {
   id: string;

@@ -76,13 +76,44 @@ Security model:
 Install as executable:
 
 ```bash
-npm link
+npm pack
+npm i -g ./nitpik-*.tgz
 nitpik --help
 ```
 
-Compatibility:
-- Legacy `prlens` command is still available as an alias.
-- Legacy `.prlens.yaml` / `.prlens.yml` and `PRLENS_*` Box env vars are still supported.
+This installs a real global package copy, so `nitpik` keeps working even if you delete this repo folder later.
+
+If you hit issues after updating, do a clean reinstall:
+
+```bash
+npm uninstall -g nitpik
+rm -f nitpik-*.tgz
+npm pack
+npm i -g --force ./nitpik-*.tgz
+hash -r
+nitpik --help
+```
+
+Development-only alternative:
+
+```bash
+npm link
+```
+
+`npm link` is a symlink to your local repo and will break if the repo is moved/deleted.
+
+Uninstall:
+
+```bash
+# Remove global install (tarball/registry install)
+npm uninstall -g nitpik
+```
+
+If you installed with `npm link`, unlink it too:
+
+```bash
+npm unlink -g nitpik
+```
 
 ## Usage
 

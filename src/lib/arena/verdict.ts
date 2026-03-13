@@ -1,4 +1,4 @@
-import type { Finding, Verdict, Severity } from "@/lib/types";
+import type { Finding, Verdict, Severity } from "../types";
 
 const verdicts = new Map<string, Verdict>();
 const locks = new Set<string>();

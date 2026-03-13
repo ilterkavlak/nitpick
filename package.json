@@ -3,9 +3,15 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
+  "files": [
+    "bin",
+    "src",
+    "tsconfig.json",
+    "README.md",
+    ".env.example"
+  ],
   "bin": {
-    "nitpik": "./src/cli/index.ts",
-    "prlens": "./src/cli/index.ts"
+    "nitpik": "./bin/nitpik.mjs"
   },
   "scripts": {
     "review": "tsx src/cli/index.ts review",

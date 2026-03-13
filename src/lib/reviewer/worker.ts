@@ -1,10 +1,10 @@
-import { createReviewerBox, setupRepo, untrackBox } from "@/lib/box";
+import { createReviewerBox, setupRepo, untrackBox } from "../box";
 import { reviewerResponseSchema } from "./response-schema";
 import { buildReviewerPrompt } from "./prompts";
-import { normalizeFinding, saveFinding } from "@/lib/arena/findings";
-import { publishEvent } from "@/lib/arena/events";
-import { updateReviewerStatus } from "@/lib/arena/status";
-import type { WorkerPayload } from "@/lib/types";
+import { normalizeFinding, saveFinding } from "../arena/findings";
+import { publishEvent } from "../arena/events";
+import { updateReviewerStatus } from "../arena/status";
+import type { WorkerPayload } from "../types";
 
 interface ExecuteReviewerOptions {
   shouldStop?: () => boolean;

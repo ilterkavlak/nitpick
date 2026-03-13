@@ -1,4 +1,4 @@
-import type { ArenaEventEnvelope, Severity } from "@/lib/types";
+import type { ArenaEventEnvelope, Severity } from "../lib/types";
 
 // ── ANSI ───────────────────────────────────────────────────────────
 const ESC = "\x1b";
@@ -141,6 +141,8 @@ interface State {
   t0: number;
   frame: number;
   timer: ReturnType<typeof setInterval> | null;
+  lastWidth: number;
+  lastHeight: number;
 }
 
 let S: State | null = null;
@@ -280,6 +282,11 @@ function render(): void {
 
   const tw = process.stdout.columns || 80;
   const th = process.stdout.rows || 40;
+  const resized = tw !== S.lastWidth || th !== S.lastHeight;
+  if (resized) {
+    S.lastWidth = tw;
+    S.lastHeight = th;
+  }
   const time = clock();
   const buf: string[] = [];
 
@@ -293,7 +300,7 @@ function render(): void {
   // ── Progress bar ───────────────────────────────────────────────
   const workers = Array.from(S.workers.values());
   const done = workers.filter((w) => w.status === "completed" || w.status === "failed").length;
-  const barW = Math.min(tw - 16, 50);
+  const barW = Math.max(8, Math.min(tw - 16, 50));
   buf.push(`  ${progressBar(done, workers.length, barW)}`);
   buf.push("");
 
@@ -312,7 +319,7 @@ function render(): void {
   }
 
   // ── Separator ──────────────────────────────────────────────────
-  buf.push(`  ${MUTED}${"─".repeat(tw - 4)}${R}`);
+  buf.push(`  ${MUTED}${"─".repeat(Math.max(1, tw - 4))}${R}`);
   buf.push(`  ${B}Recent findings${R}`);
   buf.push("");
 
@@ -346,7 +353,8 @@ function render(): void {
   const foot = `  ${MUTED}${total} finding(s) so far  ·  Ctrl+C to cancel${R}`;
   buf.push(foot + " ".repeat(Math.max(0, tw - vlen(foot))));
 
-  process.stdout.write(HOME + buf.join("\n"));
+  const prefix = resized ? `${CLR}${HOME}` : HOME;
+  process.stdout.write(prefix + buf.join("\n"));
 }
 
 function timeSince(ts: number, t0: number): string {
@@ -365,6 +373,8 @@ export function startDashboard(title: string, roles: string[]): void {
     t0: Date.now(),
     frame: 0,
     timer: null,
+    lastWidth: process.stdout.columns || 80,
+    lastHeight: process.stdout.rows || 40,
   };
 
   for (const role of roles) {

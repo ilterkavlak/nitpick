@@ -1,10 +1,10 @@
 import { search, select, checkbox, confirm, editor, input, Separator } from "@inquirer/prompts";
-import { fetchUserRepos, fetchOpenPrs } from "@/lib/github";
-import type { GitHubRepo, GitHubPr } from "@/lib/github";
-import { ROLE_PROMPTS } from "@/lib/reviewer/prompts";
-import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "@/lib/box";
-import type { ModelEntry } from "@/lib/box";
-import type { ReviewerRole, ReviewerConfig, ScannerRole } from "@/lib/types";
+import { fetchUserRepos, fetchOpenPrs } from "../lib/github";
+import type { GitHubRepo, GitHubPr } from "../lib/github";
+import { ROLE_PROMPTS } from "../lib/reviewer/prompts";
+import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "../lib/box";
+import type { ModelEntry } from "../lib/box";
+import type { ReviewerRole, ReviewerConfig, ScannerRole } from "../lib/types";
 
 const E = "\x1b";
 const R = `${E}[0m`;

@@ -1,5 +1,5 @@
 import { confirm, select } from "@inquirer/prompts";
-import type { Finding, Severity, AnyRole } from "@/lib/types";
+import type { Finding, Severity, AnyRole } from "../lib/types";
 
 const E = "\x1b";
 const R = `${E}[0m`;

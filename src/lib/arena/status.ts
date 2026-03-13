@@ -1,4 +1,4 @@
-import type { ArenaSession, ArenaStatus, ReviewerRole, ReviewerRun } from "@/lib/types";
+import type { ArenaSession, ArenaStatus, ReviewerRole, ReviewerRun } from "../types";
 import { publishEvent } from "./events";
 
 const arenas = new Map<string, ArenaSession>();

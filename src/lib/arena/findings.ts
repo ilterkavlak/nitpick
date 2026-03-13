@@ -1,5 +1,5 @@
-import { generateId } from "@/lib/utils";
-import type { Finding, AnyRole, Severity } from "@/lib/types";
+import { generateId } from "../utils";
+import type { Finding, AnyRole, Severity } from "../types";
 
 const findings = new Map<string, Finding[]>();
 

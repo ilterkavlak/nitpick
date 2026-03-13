@@ -1,4 +1,4 @@
-import type { ReviewerRole } from "@/lib/types";
+import type { ReviewerRole } from "../types";
 
 const SHARED_INSTRUCTIONS = `
 IMPORTANT RULES:

@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
-import type { PrLensConfig, ReviewerRole, ReviewerConfig } from "./types";
+import type { NitpikConfig, ReviewerRole, ReviewerConfig } from "./types";
 
 const ALL_ROLES: ReviewerRole[] = ["security", "performance", "architecture", "testing", "dx"];
 
@@ -9,7 +9,7 @@ function isValidRole(r: string): r is ReviewerRole {
   return ALL_ROLES.includes(r as ReviewerRole);
 }
 
-export function loadConfig(dir?: string): PrLensConfig {
+export function loadConfig(dir?: string): NitpikConfig {
   const searchDir = dir ?? process.cwd();
   const filePath = resolve(searchDir, ".nitpik.yaml");
 
@@ -17,12 +17,6 @@ export function loadConfig(dir?: string): PrLensConfig {
     // Also check .nitpik.yml
     const altPath = resolve(searchDir, ".nitpik.yml");
     if (existsSync(altPath)) return parseConfigFile(altPath);
-
-    // Backward compatibility with old PR Lens config names
-    const prLensYaml = resolve(searchDir, ".prlens.yaml");
-    if (existsSync(prLensYaml)) return parseConfigFile(prLensYaml);
-    const prLensYml = resolve(searchDir, ".prlens.yml");
-    if (existsSync(prLensYml)) return parseConfigFile(prLensYml);
 
     // Backward compatibility with old Gavel config names
     const legacyYaml = resolve(searchDir, ".gavel.yaml");
@@ -35,13 +29,13 @@ export function loadConfig(dir?: string): PrLensConfig {
   return parseConfigFile(filePath);
 }
 
-function parseConfigFile(filePath: string): PrLensConfig {
+function parseConfigFile(filePath: string): NitpikConfig {
   const content = readFileSync(filePath, "utf-8");
   const raw = parseYaml(content);
 
   if (!raw || typeof raw !== "object") return {};
 
-  const config: PrLensConfig = {};
+  const config: NitpikConfig = {};
 
   if (Array.isArray(raw.roles)) {
     config.roles = raw.roles.filter(isValidRole);
@@ -123,7 +117,7 @@ export interface MergedOptions {
 }
 
 export function mergeConfigWithFlags(
-  config: PrLensConfig,
+  config: NitpikConfig,
   flags: {
     roles?: string[];
     writeReport?: boolean;

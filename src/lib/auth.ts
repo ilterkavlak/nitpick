@@ -16,14 +16,6 @@ let boxApiKeyCache: string | null | undefined;
 const DEFAULT_BOX_KEYCHAIN_SERVICE = "nitpik_upstash_box_api_key";
 const DEFAULT_BOX_CREDENTIALS_PATH = join(homedir(), ".box", "credentials");
 
-function envAny(...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = process.env[key];
-    if (value && value.trim().length > 0) return value;
-  }
-  return undefined;
-}
-
 function getGhCliToken(): string | undefined {
   if (ghCliTokenCache !== undefined) {
     return ghCliTokenCache ?? undefined;
@@ -63,7 +55,7 @@ function setBoxApiKeyForSession(key: string): string {
 }
 
 function getBoxApiKeyFromCommand(): string | undefined {
-  const cmd = envAny("NITPIK_BOX_API_KEY_COMMAND", "PRLENS_BOX_API_KEY_COMMAND");
+  const cmd = process.env.NITPIK_BOX_API_KEY_COMMAND;
   if (!cmd || cmd.trim().length === 0) return undefined;
 
   // Execute through sh -c so users can pass a simple one-liner command.
@@ -71,9 +63,7 @@ function getBoxApiKeyFromCommand(): string | undefined {
 }
 
 function getBoxApiKeyFromKeychain(): string | undefined {
-  const service =
-    envAny("NITPIK_BOX_KEYCHAIN_SERVICE", "PRLENS_BOX_KEYCHAIN_SERVICE") ||
-    DEFAULT_BOX_KEYCHAIN_SERVICE;
+  const service = process.env.NITPIK_BOX_KEYCHAIN_SERVICE || DEFAULT_BOX_KEYCHAIN_SERVICE;
   return runCommand("security", [
     "find-generic-password",
     "-a",
@@ -85,14 +75,13 @@ function getBoxApiKeyFromKeychain(): string | undefined {
 }
 
 function getBoxApiKeyFrom1Password(): string | undefined {
-  const ref = envAny("NITPIK_BOX_OP_REF", "PRLENS_BOX_OP_REF");
+  const ref = process.env.NITPIK_BOX_OP_REF;
   if (!ref || ref.trim().length === 0) return undefined;
   return runCommand("op", ["read", ref]);
 }
 
 function getBoxCredentialsPath(): string {
-  return envAny("NITPIK_BOX_CREDENTIALS_FILE", "PRLENS_BOX_CREDENTIALS_FILE")
-    ?? DEFAULT_BOX_CREDENTIALS_PATH;
+  return process.env.NITPIK_BOX_CREDENTIALS_FILE?.trim() || DEFAULT_BOX_CREDENTIALS_PATH;
 }
 
 function getBoxApiKeyFromCredentialsFile(): string | undefined {
@@ -110,9 +99,7 @@ function getBoxApiKeyFromCredentialsFile(): string | undefined {
 }
 
 function saveBoxApiKeyToKeychain(key: string): boolean {
-  const service =
-    envAny("NITPIK_BOX_KEYCHAIN_SERVICE", "PRLENS_BOX_KEYCHAIN_SERVICE") ||
-    DEFAULT_BOX_KEYCHAIN_SERVICE;
+  const service = process.env.NITPIK_BOX_KEYCHAIN_SERVICE || DEFAULT_BOX_KEYCHAIN_SERVICE;
   try {
     execFileSync("security", [
       "add-generic-password",
@@ -152,7 +139,7 @@ function saveBoxApiKeyToCredentialsFile(key: string): boolean {
 
 function autoPersistBoxApiKey(key: string): string | null {
   if (process.platform === "darwin" && saveBoxApiKeyToKeychain(key)) {
-    return `macOS Keychain (${envAny("NITPIK_BOX_KEYCHAIN_SERVICE", "PRLENS_BOX_KEYCHAIN_SERVICE") || DEFAULT_BOX_KEYCHAIN_SERVICE})`;
+    return `macOS Keychain (${process.env.NITPIK_BOX_KEYCHAIN_SERVICE || DEFAULT_BOX_KEYCHAIN_SERVICE})`;
   }
   if (saveBoxApiKeyToCredentialsFile(key)) {
     return getBoxCredentialsPath();
@@ -281,7 +268,7 @@ export async function ensureBoxApiKeyInteractive(): Promise<string> {
     if (where) location = where;
   } else if (choice === "keychain") {
     stored = saveBoxApiKeyToKeychain(key);
-    location = `macOS Keychain (${envAny("NITPIK_BOX_KEYCHAIN_SERVICE", "PRLENS_BOX_KEYCHAIN_SERVICE") || DEFAULT_BOX_KEYCHAIN_SERVICE})`;
+    location = `macOS Keychain (${process.env.NITPIK_BOX_KEYCHAIN_SERVICE || DEFAULT_BOX_KEYCHAIN_SERVICE})`;
   } else if (choice === "credentials") {
     stored = saveBoxApiKeyToCredentialsFile(key);
     location = getBoxCredentialsPath();

@@ -2,8 +2,8 @@
 
 import { runReview } from "./review";
 import { runInteractive } from "./interactive";
-import { loadConfig, mergeConfigWithFlags } from "@/lib/config";
-import { cleanupAllBoxes } from "@/lib/box";
+import { loadConfig, mergeConfigWithFlags } from "../lib/config";
+import { cleanupAllBoxes } from "../lib/box";
 
 const E = "\x1b";
 const R = `${E}[0m`;
@@ -87,7 +87,7 @@ async function main() {
     }
   }
 
-  // Load .nitpik.yaml (with legacy .prlens/.gavel fallback) config
+  // Load .nitpik.yaml (with legacy .gavel fallback) config
   const config = loadConfig();
 
   // No args at all → interactive
