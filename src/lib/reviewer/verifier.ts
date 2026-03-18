@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createReviewerBox, setupRepo, untrackBox } from "../box";
+import { createReviewerBox, setupRepo, deleteTrackedBox } from "../box";
 import type { Finding } from "../types";
 
 // Verifier uses a different provider than the reviewers (OpenAI GPT-5.x latest)
@@ -108,7 +108,7 @@ export async function verifyFindings(
     const run = await box.agent.run({
       prompt,
       responseSchema: verifierResponseSchema,
-      maxRetries: 1,
+      maxRetries: 0,
       timeout: 5 * 60 * 1000,
       onToolUse: onActivity ? () => onActivity() : undefined,
     });
@@ -184,7 +184,6 @@ export async function verifyFindings(
       summary: "Verification agent failed — all findings kept unverified.",
     };
   } finally {
-    untrackBox(box);
-    await box.delete().catch(() => {});
+    await deleteTrackedBox(box);
   }
 }

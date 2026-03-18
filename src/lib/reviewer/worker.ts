@@ -1,4 +1,4 @@
-import { createReviewerBox, setupRepo, untrackBox } from "../box";
+import { createReviewerBox, setupRepo, deleteTrackedBox } from "../box";
 import { reviewerResponseSchema } from "./response-schema";
 import { buildReviewerPrompt } from "./prompts";
 import { normalizeFinding, saveFinding } from "../arena/findings";
@@ -46,7 +46,7 @@ export async function executeReviewerJob(
     const run = await box.agent.run({
       prompt,
       responseSchema: reviewerResponseSchema,
-      maxRetries: 1,
+      maxRetries: 0,
       timeout: 4 * 60 * 1000,
       onToolUse: onActivity ? () => onActivity() : undefined,
     });
@@ -110,8 +110,7 @@ export async function executeReviewerJob(
     }
   } finally {
     if (box) {
-      untrackBox(box);
-      await box.delete().catch(() => {});
+      await deleteTrackedBox(box);
     }
   }
 

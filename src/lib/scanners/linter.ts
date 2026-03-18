@@ -1,4 +1,4 @@
-import { createReviewerBox, setupRepo, untrackBox } from "../box";
+import { createReviewerBox, setupRepo, deleteTrackedBox } from "../box";
 import { generateId } from "../utils";
 import type { Finding, Severity } from "../types";
 
@@ -76,7 +76,7 @@ If no issues found, output: []`;
 
     const run = await box.agent.run({
       prompt,
-      maxRetries: 1,
+      maxRetries: 0,
       timeout: 3 * 60 * 1000,
       onToolUse: options?.onActivity ? () => options.onActivity!() : undefined,
     });
@@ -112,7 +112,6 @@ If no issues found, output: []`;
   } catch {
     return [];
   } finally {
-    untrackBox(box);
-    await box.delete().catch(() => {});
+    await deleteTrackedBox(box);
   }
 }

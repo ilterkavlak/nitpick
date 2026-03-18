@@ -18,19 +18,98 @@ export function getActiveBoxCount(): number {
   return activeBoxes.size;
 }
 
+async function deleteWithTimeout(
+  box: BoxInstance,
+  timeoutMs: number
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      box.delete(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Box delete timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function deleteTrackedBox(
+  box: BoxInstance,
+  options?: { retries?: number; timeoutMs?: number }
+): Promise<boolean> {
+  const retries = options?.retries ?? 2;
+  const timeoutMs = options?.timeoutMs ?? 15_000;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await deleteWithTimeout(box, timeoutMs);
+      activeBoxes.delete(box);
+      return true;
+    } catch {
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+  }
+  return false;
+}
+
 export async function cleanupAllBoxes(
   onProgress?: (done: number, total: number) => void
 ): Promise<{ total: number; failed: number }> {
   const boxes = Array.from(activeBoxes);
-  activeBoxes.clear();
   const total = boxes.length;
   let done = 0;
   let failed = 0;
 
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     boxes.map(async (b) => {
+      const deleted = await deleteTrackedBox(b, { retries: 1, timeoutMs: 15_000 });
+      if (!deleted) {
+        failed++;
+      }
+      done++;
+      onProgress?.(done, total);
+    })
+  );
+
+  return { total, failed };
+}
+
+export async function cancelAllBoxRuns(
+  onProgress?: (done: number, total: number) => void
+): Promise<{ total: number; failed: number; cancelled: number }> {
+  const boxes = Array.from(activeBoxes);
+  const total = boxes.length;
+  let done = 0;
+  let failed = 0;
+  let cancelled = 0;
+
+  await Promise.allSettled(
+    boxes.map(async (box) => {
       try {
-        await b.delete();
+        const runs = await Promise.race([
+          box.listRuns(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("List runs timeout")), 5_000)
+          ),
+        ]);
+        const running = runs.filter((r) => r.status === "running");
+        for (const run of running) {
+          try {
+            const requester = (box as unknown as {
+              _request: (method: string, path: string, options?: { body?: unknown; timeout?: number }) => Promise<unknown>;
+            })._request;
+            await requester("POST", `/v2/box/${box.id}/runs/${run.id}/cancel`, {
+              timeout: 5_000,
+            });
+            cancelled++;
+          } catch {
+            failed++;
+          }
+        }
       } catch {
         failed++;
       } finally {
@@ -40,15 +119,7 @@ export async function cleanupAllBoxes(
     })
   );
 
-  // Keep this in place in case upstream behavior changes and throws outside
-  // inner try/catch.
-  for (const r of results) {
-    if (r.status === "rejected") {
-      failed++;
-    }
-  }
-
-  return { total, failed };
+  return { total, failed, cancelled };
 }
 
 export const DEFAULT_MODEL_KEY = "Opus_4_6";

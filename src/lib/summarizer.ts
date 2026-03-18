@@ -1,4 +1,4 @@
-import { createReviewerBox, setupRepo, untrackBox } from "./box";
+import { createReviewerBox, setupRepo, deleteTrackedBox } from "./box";
 import type { PrSummary } from "./types";
 
 const SUMMARY_PROMPT = `You are a PR summarizer. Analyze the pull request diff and provide a concise summary.
@@ -33,7 +33,7 @@ export async function generatePrSummary(
 
     const run = await box.agent.run({
       prompt: SUMMARY_PROMPT,
-      maxRetries: 1,
+      maxRetries: 0,
       timeout: 2 * 60 * 1000,
     });
 
@@ -57,8 +57,7 @@ export async function generatePrSummary(
   } catch {
     return fallbackSummary();
   } finally {
-    untrackBox(box);
-    await box.delete().catch(() => {});
+    await deleteTrackedBox(box);
   }
 }
 

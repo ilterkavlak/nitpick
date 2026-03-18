@@ -31,7 +31,7 @@ import { scanDependencies } from "../lib/scanners/dependencies";
 import { scanWithLinter } from "../lib/scanners/linter";
 import { submitPrReview } from "../lib/github-review";
 import type { PostProgress } from "../lib/github-review";
-import { cleanupAllBoxes, getActiveBoxCount } from "../lib/box";
+import { cancelAllBoxRuns, cleanupAllBoxes, getActiveBoxCount } from "../lib/box";
 import {
   ensureBoxApiKeyInteractive,
   requireBoxApiKey,
@@ -76,6 +76,24 @@ function renderDashboardSummary(ds: DashboardSummary): void {
     console.log(`  ${icon}  ${col}${w.role}${r}  ${t}${f}`);
   }
   console.log("");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export interface ReviewOptions {
@@ -194,12 +212,61 @@ export async function runReview(
 
   // SIGINT handler for graceful shutdown
   let interrupted = false;
+  let shutdownPromise: Promise<number> | null = null;
+  let resolveInterrupted: (() => void) | null = null;
+  const interruptedPromise = new Promise<void>((resolve) => {
+    resolveInterrupted = resolve;
+  });
+
+  const stopDashboardSafe = () => {
+    if (!useDashboard) return;
+    try {
+      stopDashboard();
+    } catch {
+      // already stopped
+    }
+  };
+
+  const shutdownBoxesGracefully = async (): Promise<number> => {
+    const deadline = Date.now() + 20_000;
+    let attempt = 0;
+
+    while (Date.now() < deadline) {
+      attempt++;
+      await withTimeout(cancelAllBoxRuns().catch(() => undefined), 6_000, undefined);
+      await withTimeout(cleanupAllBoxes().catch(() => undefined), 8_000, undefined);
+      const remaining = getActiveBoxCount();
+      if (remaining === 0) {
+        return 0;
+      }
+      await sleep(Math.min(500 * attempt, 2_000));
+    }
+
+    return getActiveBoxCount();
+  };
+
+  const ensureShutdownStarted = (): Promise<number> => {
+    if (!shutdownPromise) {
+      shutdownPromise = shutdownBoxesGracefully().finally(() => {
+        stopDashboardSafe();
+      });
+    }
+    return shutdownPromise;
+  };
+
   const sigintHandler = () => {
     if (interrupted) {
-      if (useDashboard) stopDashboard();
-      process.exit(1);
+      stopDashboardSafe();
+      process.exit(130);
     }
     interrupted = true;
+    resolveInterrupted?.();
+    void ensureShutdownStarted();
+    // Safety net: force exit if main flow gets stuck
+    const forceExitTimer = setTimeout(() => {
+      cleanupAllBoxes().catch(() => {}).finally(() => process.exit(130));
+    }, 25_000);
+    forceExitTimer.unref();
     if (!useDashboard) {
       console.log(
         "\n\nInterrupted. Marking run as cancelled and waiting for in-flight reviewers to stop..."
@@ -425,8 +492,46 @@ export async function runReview(
       );
     }
 
-    // Wait for all reviewers and scanners
-    await Promise.all([reviewerPromise, ...scannerPromises]);
+    // Wait for all reviewers and scanners, unless interrupted.
+    const allWorkPromise = Promise.all([reviewerPromise, ...scannerPromises]).then(
+      () => "completed" as const
+    );
+    const outcome = await Promise.race([
+      allWorkPromise,
+      interruptedPromise.then(() => "interrupted" as const),
+    ]);
+
+    if (outcome === "interrupted") {
+      if (useDashboard) {
+        try {
+          renderDashboardSummary(stopDashboard());
+        } catch {
+          // already stopped
+        }
+      }
+      await updateArenaStatus(session.id, "cancelled");
+      status.warn("Run cancelled");
+
+      // Start killing boxes so workers fail fast
+      void ensureShutdownStarted();
+
+      // Wait for workers to actually stop (they'll exit quickly once
+      // shouldStop() returns true and their boxes are deleted)
+      await withTimeout(
+        allWorkPromise.catch(() => undefined),
+        15_000,
+        undefined
+      );
+
+      // Clean up any boxes workers created during shutdown
+      await withTimeout(
+        cleanupAllBoxes().catch(() => undefined),
+        12_000,
+        undefined
+      );
+
+      return;
+    }
 
     // Get summary result
     prSummary = await summaryPromise;
@@ -611,24 +716,26 @@ export async function runReview(
   } finally {
     process.off("SIGINT", sigintHandler);
     setOnEvent(null);
-    // Ensure dashboard is cleaned up even on errors
-    if (useDashboard) {
-      try {
-        stopDashboard();
-      } catch {
-        /* already stopped */
-      }
+    stopDashboardSafe();
+
+    if (shutdownPromise) {
+      await withTimeout(shutdownPromise, 22_000, getActiveBoxCount());
     }
+
     // Destroy any boxes that weren't cleaned up by individual workers
     const cleanupTotal = getActiveBoxCount();
     const doneCleanup = status.start("Cleaning up");
-    const cleanupResult = await cleanupAllBoxes((done, total) => {
-      if (total > 0) {
-        process.stdout.write(
-          `\r  \x1b[38;5;75m●\x1b[0m  Cleaning up… \x1b[2m${done}/${total} box(es)\x1b[0m`
-        );
-      }
-    });
+    const cleanupResult = await withTimeout(
+      cleanupAllBoxes((done, total) => {
+        if (total > 0) {
+          process.stdout.write(
+            `\r  \x1b[38;5;75m●\x1b[0m  Cleaning up… \x1b[2m${done}/${total} box(es)\x1b[0m`
+          );
+        }
+      }),
+      12_000,
+      { total: cleanupTotal, failed: cleanupTotal }
+    );
     clearEvents(session.id);
     clearFindings(session.id);
     clearVerdict(session.id);
@@ -643,5 +750,9 @@ export async function runReview(
       doneCleanup(`${cleanupResult.total} box(es) deleted`);
     }
     status.gap();
+
+    if (interrupted) {
+      process.exit(130);
+    }
   }
 }
