@@ -1,7 +1,15 @@
 import { generateId } from "../utils";
 import type { ArenaSession, ReviewerRole, ReviewerRun } from "../types";
-import { fetchPrMetadata } from "../github";
+import { fetchCompareMetadata, fetchPrMetadata } from "../github";
 import { setArena, setReviewers } from "./status";
+
+function initReviewerRuns(arenaId: string, roles: ReviewerRole[]): void {
+  const runs: Record<string, ReviewerRun> = {};
+  for (const role of roles) {
+    runs[role] = { role, arenaId, status: "queued" };
+  }
+  setReviewers(arenaId, runs);
+}
 
 export async function createArena(
   prUrl: string,
@@ -16,6 +24,7 @@ export async function createArena(
 
   const session: ArenaSession = {
     id,
+    mode: "pr",
     repoOwner: owner,
     repoName: repo,
     prNumber,
@@ -29,19 +38,39 @@ export async function createArena(
     createdAt: now,
   };
 
-  // Store in-memory
   setArena(session);
+  initReviewerRuns(id, selectedRoles);
 
-  // Initialize reviewer runs
-  const runs: Record<string, ReviewerRun> = {};
-  for (const role of selectedRoles) {
-    runs[role] = {
-      role,
-      arenaId: id,
-      status: "queued",
-    };
-  }
-  setReviewers(id, runs);
+  return session;
+}
+
+export async function createArenaFromRefs(
+  owner: string,
+  repo: string,
+  baseRef: string,
+  headRef: string,
+  selectedRoles: ReviewerRole[]
+): Promise<ArenaSession> {
+  const metadata = await fetchCompareMetadata(owner, repo, baseRef, headRef);
+  const id = generateId();
+  const now = new Date().toISOString();
+
+  const session: ArenaSession = {
+    id,
+    mode: "ref",
+    repoOwner: owner,
+    repoName: repo,
+    baseRef,
+    headRef,
+    baseSha: metadata.baseSha,
+    headSha: metadata.headSha,
+    selectedRoles,
+    status: "queued",
+    createdAt: now,
+  };
+
+  setArena(session);
+  initReviewerRuns(id, selectedRoles);
 
   return session;
 }

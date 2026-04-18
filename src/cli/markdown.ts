@@ -22,10 +22,21 @@ export function generateMarkdownReport(
 ): string {
   const lines: string[] = [];
 
-  lines.push(`# PR Review: ${session.prTitle}`);
-  lines.push("");
-  lines.push(`**PR:** [#${session.prNumber}](${session.prUrl})`);
-  lines.push(`**Author:** ${session.prAuthor}`);
+  if (session.mode === "pr") {
+    lines.push(`# PR Review: ${session.prTitle ?? `#${session.prNumber ?? ""}`}`);
+    lines.push("");
+    if (session.prNumber !== undefined && session.prUrl) {
+      lines.push(`**PR:** [#${session.prNumber}](${session.prUrl})`);
+    }
+    if (session.prAuthor) {
+      lines.push(`**Author:** ${session.prAuthor}`);
+    }
+  } else {
+    lines.push(`# Ref Review: ${session.repoOwner}/${session.repoName}`);
+    lines.push("");
+    lines.push(`**Base:** \`${session.baseRef}\` (\`${session.baseSha.slice(0, 7)}\`)`);
+    lines.push(`**Head:** \`${session.headRef}\` (\`${session.headSha.slice(0, 7)}\`)`);
+  }
   lines.push(`**Reviewers:** ${session.selectedRoles.join(", ")}`);
   lines.push(`**Date:** ${new Date().toISOString().split("T")[0]}`);
   lines.push("");

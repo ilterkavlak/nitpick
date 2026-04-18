@@ -21,15 +21,14 @@ Rules:
 export async function generatePrSummary(
   owner: string,
   repo: string,
-  prNumber: number,
   baseSha: string,
   headSha: string,
-  modelKey?: string
+  options: { prNumber?: number; modelKey?: string } = {}
 ): Promise<PrSummary> {
-  const box = await createReviewerBox(modelKey ?? "Haiku_4_5");
+  const box = await createReviewerBox(options.modelKey ?? "Haiku_4_5");
 
   try {
-    await setupRepo(box, owner, repo, prNumber, baseSha, headSha);
+    await setupRepo(box, owner, repo, baseSha, headSha, { prNumber: options.prNumber });
 
     const run = await box.agent.run({
       prompt: SUMMARY_PROMPT,

@@ -1,5 +1,4 @@
-import { parsePrUrl } from "../lib/utils";
-import { createArena } from "../lib/arena/create";
+import { createArena, createArenaFromRefs } from "../lib/arena/create";
 import { setOnEvent, clearEvents } from "../lib/arena/events";
 import { publishEvent } from "../lib/arena/events";
 import { getFindings, clearFindings, saveFinding } from "../lib/arena/findings";
@@ -24,7 +23,7 @@ import {
 import type { DashboardSummary } from "./dashboard";
 import { generateMarkdownReport } from "./markdown";
 import { triageFindings } from "./triage";
-import { fetchPrDiff } from "../lib/github";
+import { fetchCompareDiff, fetchPrDiff } from "../lib/github";
 import { generatePrSummary } from "../lib/summarizer";
 import { scanSecretsInDiff } from "../lib/scanners/secrets";
 import { scanDependencies } from "../lib/scanners/dependencies";
@@ -40,6 +39,8 @@ import {
 } from "../lib/auth";
 import { verifyFindings } from "../lib/reviewer/verifier";
 import type {
+  ArenaSession,
+  ExitOnMode,
   ReviewerRole,
   ReviewerConfig,
   WorkerPayload,
@@ -96,6 +97,10 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
   }
 }
 
+export type ReviewTarget =
+  | { kind: "pr"; prUrl: string; owner: string; repo: string; prNumber: number }
+  | { kind: "ref"; owner: string; repo: string; baseRef: string; headRef: string };
+
 export interface ReviewOptions {
   roles?: string[];
   outputPath?: string;
@@ -105,20 +110,55 @@ export interface ReviewOptions {
   mergedConfig?: MergedOptions;
 }
 
+export interface ReviewResult {
+  session: ArenaSession;
+  findings: Finding[];
+  acceptedFindings: Finding[];
+  dismissedFindings: Finding[];
+  rejectedFindings: Finding[];
+  verdict: Verdict | null;
+  summary: PrSummary | null;
+  hadReviewerFailures: boolean;
+  interrupted: boolean;
+  reviewUrl?: string;
+  exitCode: number;
+}
+
+function computeExitCode(
+  mode: ExitOnMode,
+  verdict: Verdict | null,
+  acceptedFindings: Finding[]
+): number {
+  if (mode === "none") return 0;
+  if (mode === "findings") {
+    return acceptedFindings.length > 0 ? 2 : 0;
+  }
+  if (mode === "blockers") {
+    return verdict && verdict.blockers.length > 0 ? 2 : 0;
+  }
+  if (mode === "changes-requested") {
+    return verdict && verdict.mergeRecommendation !== "approve" ? 2 : 0;
+  }
+  return 0;
+}
+
 export async function runReview(
-  prUrl: string,
+  target: ReviewTarget,
   options: ReviewOptions = {}
-): Promise<void> {
-  // Use merged config if provided, otherwise fall back to raw options
+): Promise<ReviewResult> {
   const merged = options.mergedConfig;
   const roles = merged?.roles ?? options.roles;
   const writeReport = merged?.writeReport ?? true;
   const outputPath = merged?.outputPath ?? options.outputPath;
   const auto = merged?.auto ?? options.auto ?? false;
-  const postReview = merged?.postReview ?? options.postReview ?? false;
+  const postReviewRequested = merged?.postReview ?? options.postReview ?? false;
+  const postReview = postReviewRequested && target.kind === "pr";
   const enableSummary = merged?.summary ?? true;
   const reviewerConfigs = merged?.reviewerConfigs ?? options.reviewerConfigs;
   const scanners = merged?.scanners ?? { secrets: true, linter: true, dependencies: true };
+  const jsonOutput = merged?.json;
+  const exitOnMode: ExitOnMode = merged?.exitOn ?? "none";
+  const nonInteractive = merged?.nonInteractive ?? false;
 
   // ── Setup phase: visible status for every step ───────────────
   status.header("🔎  Nitpick");
@@ -127,6 +167,11 @@ export async function runReview(
   try {
     requireBoxApiKey();
   } catch {
+    if (nonInteractive) {
+      throw new Error(
+        "Upstash Box API key not found. Non-interactive mode is enabled — set UPSTASH_BOX_API_KEY or configure a credentials store before running."
+      );
+    }
     await ensureBoxApiKeyInteractive();
   }
   requireGitReadToken();
@@ -140,17 +185,13 @@ export async function runReview(
       : "Box API key, GitHub read token"
   );
 
-  // Parse PR URL
-  const parsed = parsePrUrl(prUrl);
-  if (!parsed) {
-    status.fail("Invalid PR URL");
-    throw new Error(
-      "Invalid GitHub PR URL. Expected: https://github.com/<owner>/<repo>/pull/<number>"
-    );
+  const { owner, repo } = target;
+  const prNumber = target.kind === "pr" ? target.prNumber : undefined;
+  if (target.kind === "pr") {
+    status.ok("Parsed PR URL", `${owner}/${repo}#${target.prNumber}`);
+  } else {
+    status.ok("Ref target", `${owner}/${repo} ${target.baseRef}...${target.headRef}`);
   }
-
-  const { owner, repo, prNumber } = parsed;
-  status.ok("Parsed PR URL", `${owner}/${repo}#${prNumber}`);
 
   // Resolve roles
   const selectedRoles: ReviewerRole[] = roles
@@ -174,22 +215,33 @@ export async function runReview(
   }
   status.ok("PR comments", postReview ? "enabled" : "disabled");
 
-  // Fetch PR metadata and create arena session
-  const doneMeta = status.start("Fetching PR metadata");
-  const session = await createArena(prUrl, owner, repo, prNumber, selectedRoles);
-  doneMeta(`"${session.prTitle}" by @${session.prAuthor}`);
+  // Fetch PR/ref metadata and create arena session
+  const doneMeta = status.start(
+    target.kind === "pr" ? "Fetching PR metadata" : "Fetching compare metadata"
+  );
+  const session =
+    target.kind === "pr"
+      ? await createArena(target.prUrl, owner, repo, target.prNumber, selectedRoles)
+      : await createArenaFromRefs(owner, repo, target.baseRef, target.headRef, selectedRoles);
+  if (session.mode === "pr") {
+    doneMeta(`"${session.prTitle}" by @${session.prAuthor}`);
+  } else {
+    doneMeta(`${session.baseSha.slice(0, 7)}...${session.headSha.slice(0, 7)}`);
+  }
 
   status.ok("Review session created", session.id.slice(0, 8));
   status.gap();
 
-  // Decide rendering mode: dashboard (TTY) vs plain (piped / non-TTY)
-  const useDashboard = Boolean(process.stdout.isTTY);
+  // Decide rendering mode: dashboard (TTY) vs plain (piped / non-TTY / JSON stdout)
+  const jsonToStdout = jsonOutput === true || jsonOutput === "-";
+  const useDashboard = Boolean(process.stdout.isTTY) && !jsonToStdout;
 
   if (useDashboard) {
-    startDashboard(
-      `${owner}/${repo} #${prNumber}`,
-      [...selectedRoles, ...enabledScanners]
-    );
+    const title =
+      target.kind === "pr"
+        ? `${owner}/${repo} #${target.prNumber}`
+        : `${owner}/${repo} ${target.baseRef}...${target.headRef}`;
+    startDashboard(title, [...selectedRoles, ...enabledScanners]);
   }
 
   // Register the correct event handler
@@ -277,13 +329,36 @@ export async function runReview(
 
   let prSummary: PrSummary | undefined;
   let reviewerFailures = false;
+  let lastReviewUrl: string | undefined;
+
+  // State tracked for the final ReviewResult
+  let allFindings: Finding[] = [];
+  let verifiedFindings: Finding[] = [];
+  let rejectedFindings: Finding[] = [];
+  let acceptedFindings: Finding[] = [];
+  let dismissedFindings: Finding[] = [];
+  let verdict: Verdict | null = null;
+
+  const snapshot = (): ReviewResult => ({
+    session,
+    findings: allFindings,
+    acceptedFindings,
+    dismissedFindings,
+    rejectedFindings,
+    verdict,
+    summary: prSummary ?? null,
+    hadReviewerFailures: reviewerFailures,
+    interrupted,
+    reviewUrl: lastReviewUrl,
+    exitCode: computeExitCode(exitOnMode, verdict, acceptedFindings),
+  });
 
   const postReviewToGitHub = async (
     findingsToPost: Finding[],
     verdictToPost: Verdict,
     dismissedCount = 0
   ) => {
-    if (!postReview) return;
+    if (!postReview || target.kind !== "pr") return;
     try {
           status.header("⚖  Posting to GitHub");
 
@@ -349,7 +424,7 @@ export async function runReview(
       const result = await submitPrReview(
         owner,
         repo,
-        prNumber,
+        target.prNumber,
         session.headSha,
         findingsToPost,
         verdictToPost,
@@ -358,6 +433,7 @@ export async function runReview(
         onProgress
       );
 
+      lastReviewUrl = result.url;
       status.ok("Review posted", result.url);
       status.gap();
     } catch (err) {
@@ -370,33 +446,38 @@ export async function runReview(
   try {
     // Fetch diff for scanners (needed by secrets + dependencies)
     const needsDiff = scanners.secrets || scanners.dependencies;
+    const fetchDiff = () =>
+      target.kind === "pr"
+        ? fetchPrDiff(owner, repo, target.prNumber)
+        : fetchCompareDiff(owner, repo, target.baseRef, target.headRef);
     const diffPromise = needsDiff
       ? (async () => {
           if (!useDashboard) {
-            const doneDiff = status.start("Fetching PR diff");
-            const d = await fetchPrDiff(owner, repo, prNumber);
+            const doneDiff = status.start("Fetching diff");
+            const d = await fetchDiff();
             doneDiff(`${d.split("\n").length} lines`);
             return d;
           }
-          return fetchPrDiff(owner, repo, prNumber);
+          return fetchDiff();
         })()
       : Promise.resolve("");
 
-    // Start PR summary generation in parallel with reviewers
+    // Start summary generation in parallel with reviewers
     const summaryPromise = enableSummary
       ? (async () => {
+          const runSummary = () =>
+            generatePrSummary(owner, repo, session.baseSha, session.headSha, {
+              prNumber,
+            }).catch(() => undefined);
+
           if (!useDashboard) {
             const doneSummary = status.start("Generating PR summary");
-            const s = await generatePrSummary(owner, repo, prNumber, session.baseSha, session.headSha).catch(
-              () => undefined
-            );
+            const s = await runSummary();
             if (s) doneSummary(`${s.keyChanges.length} key changes`);
             else doneSummary("skipped");
             return s;
           }
-          return generatePrSummary(owner, repo, prNumber, session.baseSha, session.headSha).catch(
-            () => undefined
-          );
+          return runSummary();
         })()
       : Promise.resolve(undefined);
 
@@ -469,10 +550,10 @@ export async function runReview(
             session.id,
             owner,
             repo,
-            prNumber,
             session.baseSha,
             session.headSha,
             {
+              prNumber,
               commands: linterCommands,
               onActivity: useDashboard ? () => pingWorkerActivity("linter") : undefined,
             }
@@ -530,7 +611,7 @@ export async function runReview(
         undefined
       );
 
-      return;
+      return snapshot();
     }
 
     // Get summary result
@@ -542,7 +623,7 @@ export async function runReview(
       }
       await updateArenaStatus(session.id, "cancelled");
       status.warn("Run cancelled");
-      return;
+      return snapshot();
     }
 
     // Check for failures/cancellations
@@ -555,7 +636,7 @@ export async function runReview(
         if (useDashboard) renderDashboardSummary(stopDashboard());
         await updateArenaStatus(session.id, "cancelled");
         status.warn("Run cancelled (some reviewers were cancelled)");
-        return;
+        return snapshot();
       }
       if (hasFailures) {
         reviewerFailures = true;
@@ -564,7 +645,7 @@ export async function runReview(
     }
 
     // Fetch raw findings (includes AI reviewer + scanner findings)
-    const allFindings = await getFindings(session.id);
+    allFindings = await getFindings(session.id);
     status.ok("Review phase complete", `${allFindings.length} finding(s) collected`);
 
     if (allFindings.length === 0) {
@@ -582,9 +663,10 @@ export async function runReview(
         hadReviewerFailures: reviewerFailures,
       });
       if (emptyVerdict) {
+        verdict = emptyVerdict;
         await postReviewToGitHub([], emptyVerdict);
       }
-      return;
+      return snapshot();
     }
 
     // ── Verification phase ─────────────────────────────────────
@@ -604,19 +686,21 @@ export async function runReview(
       allFindings,
       owner,
       repo,
-      prNumber,
       session.baseSha,
       session.headSha,
-      primaryReviewerModel,
-      useDashboard ? () => pingWorkerActivity("verifier") : undefined
+      {
+        prNumber,
+        reviewerModelKey: primaryReviewerModel,
+        onActivity: useDashboard ? () => pingWorkerActivity("verifier") : undefined,
+      }
     );
 
     if (useDashboard) {
       updateWorkerStatus("verifier", "completed");
     }
 
-    const verifiedFindings = verificationResult.verified;
-    const rejectedFindings = verificationResult.rejected;
+    verifiedFindings = verificationResult.verified;
+    rejectedFindings = verificationResult.rejected;
 
     if (doneVerify) {
       doneVerify(`${verifiedFindings.length} confirmed, ${rejectedFindings.length} rejected`);
@@ -652,43 +736,50 @@ export async function runReview(
         hadReviewerFailures: reviewerFailures,
       });
       if (emptyVerdict) {
+        verdict = emptyVerdict;
         await postReviewToGitHub([], emptyVerdict);
       }
-      return;
+      return snapshot();
     }
 
     // Triage: let operator accept/dismiss findings (unless --auto)
-    let acceptedFindings = verifiedFindings;
-    let dismissedCount = 0;
+    acceptedFindings = verifiedFindings;
+    dismissedFindings = [];
 
     if (!auto) {
-      const triage = await triageFindings(verifiedFindings);
-      acceptedFindings = triage.accepted;
-      dismissedCount = triage.dismissed.length;
+      if (nonInteractive) {
+        status.ok("Triage", "skipped (non-interactive)");
+      } else {
+        const triage = await triageFindings(verifiedFindings);
+        acceptedFindings = triage.accepted;
+        dismissedFindings = triage.dismissed;
+      }
     }
+    const dismissedCount = dismissedFindings.length;
 
     // Generate verdict from accepted findings only
     const doneVerdict = status.start("Generating verdict");
-    const verdict = await generateVerdict(session.id, acceptedFindings, {
+    const newVerdict = await generateVerdict(session.id, acceptedFindings, {
       hadReviewerFailures: reviewerFailures,
     });
 
-    if (verdict) {
-      doneVerdict(`risk ${verdict.riskScore}/100 · ${verdict.mergeRecommendation.replace(/_/g, " ")}`);
+    if (newVerdict) {
+      verdict = newVerdict;
+      doneVerdict(`risk ${newVerdict.riskScore}/100 · ${newVerdict.mergeRecommendation.replace(/_/g, " ")}`);
 
       await publishEvent(session.id, {
         type: "jury_verdict",
-        summary: verdict.summary,
-        riskScore: verdict.riskScore,
+        summary: newVerdict.summary,
+        riskScore: newVerdict.riskScore,
       });
       await updateArenaStatus(session.id, "completed");
-      renderVerdict(verdict);
+      renderVerdict(newVerdict);
 
       if (dismissedCount > 0) {
         console.log(`  \x1b[2m${dismissedCount} finding(s) dismissed during triage\x1b[0m\n`);
       }
 
-      await postReviewToGitHub(acceptedFindings, verdict, dismissedCount);
+      await postReviewToGitHub(acceptedFindings, newVerdict, dismissedCount);
     } else {
       doneVerdict("no verdict");
       status.warn("No verdict generated");
@@ -700,7 +791,11 @@ export async function runReview(
     if (!writeReport) {
       status.ok("Report", "skipped (--no-report)");
     } else if (finalSession && finalVerdict) {
-      const mdPath = outputPath ?? `pr-review-${prNumber}.md`;
+      const defaultName =
+        target.kind === "pr"
+          ? `pr-review-${target.prNumber}.md`
+          : `ref-review-${target.baseRef}...${target.headRef}.md`.replace(/[/\\]/g, "-");
+      const mdPath = outputPath ?? defaultName;
       const doneReport = status.start("Writing report");
       const report = generateMarkdownReport(
         finalSession,
@@ -713,6 +808,8 @@ export async function runReview(
       writeFileSync(mdPath, report, "utf-8");
       doneReport(mdPath);
     }
+
+    return snapshot();
   } finally {
     process.off("SIGINT", sigintHandler);
     setOnEvent(null);
@@ -751,8 +848,80 @@ export async function runReview(
     }
     status.gap();
 
+    // Emit JSON output if requested. Done after cleanup so the machine-readable
+    // payload is the last thing on stdout when --json - is used.
+    if (jsonOutput) {
+      try {
+        const jsonPayload = buildJsonPayload(snapshot());
+        const serialized = JSON.stringify(jsonPayload, null, 2);
+        if (jsonOutput === true || jsonOutput === "-") {
+          process.stdout.write(serialized + "\n");
+        } else {
+          writeFileSync(jsonOutput, serialized + "\n", "utf-8");
+          status.ok("JSON report", jsonOutput);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        status.fail(`Failed to emit JSON report: ${msg}`);
+      }
+    }
+
     if (interrupted) {
       process.exit(130);
     }
   }
+}
+
+function buildJsonPayload(result: ReviewResult): Record<string, unknown> {
+  const { session } = result;
+  return {
+    version: 1,
+    sessionId: session.id,
+    mode: session.mode,
+    repo: {
+      owner: session.repoOwner,
+      name: session.repoName,
+    },
+    pr:
+      session.mode === "pr"
+        ? {
+            number: session.prNumber,
+            url: session.prUrl,
+            title: session.prTitle,
+            author: session.prAuthor,
+          }
+        : null,
+    refs:
+      session.mode === "ref"
+        ? {
+            base: session.baseRef,
+            head: session.headRef,
+          }
+        : null,
+    baseSha: session.baseSha,
+    headSha: session.headSha,
+    roles: session.selectedRoles,
+    status: session.status,
+    summary: result.summary,
+    findings: result.findings,
+    acceptedFindings: result.acceptedFindings,
+    dismissedFindings: result.dismissedFindings,
+    rejectedFindings: result.rejectedFindings,
+    verdict: result.verdict,
+    stats: {
+      findingsTotal: result.findings.length,
+      findingsAccepted: result.acceptedFindings.length,
+      findingsDismissed: result.dismissedFindings.length,
+      findingsRejected: result.rejectedFindings.length,
+      blockers: result.verdict?.blockers.length ?? 0,
+      improvements: result.verdict?.improvements.length ?? 0,
+      riskScore: result.verdict?.riskScore ?? null,
+      mergeRecommendation: result.verdict?.mergeRecommendation ?? null,
+    },
+    hadReviewerFailures: result.hadReviewerFailures,
+    interrupted: result.interrupted,
+    reviewUrl: result.reviewUrl ?? null,
+    exitCode: result.exitCode,
+    createdAt: session.createdAt,
+  };
 }

@@ -1,12 +1,22 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
-import type { NitpickConfig, ReviewerRole, ReviewerConfig } from "./types";
+import type { ExitOnMode, NitpickConfig, ReviewerRole, ReviewerConfig } from "./types";
 
 const ALL_ROLES: ReviewerRole[] = ["security", "performance", "architecture", "testing", "dx"];
+const EXIT_ON_VALUES: readonly ExitOnMode[] = [
+  "none",
+  "findings",
+  "blockers",
+  "changes-requested",
+];
 
 function isValidRole(r: string): r is ReviewerRole {
   return ALL_ROLES.includes(r as ReviewerRole);
+}
+
+export function isValidExitOn(v: string): v is ExitOnMode {
+  return (EXIT_ON_VALUES as readonly string[]).includes(v);
 }
 
 export function loadConfig(dir?: string): NitpickConfig {
@@ -60,6 +70,18 @@ function parseConfigFile(filePath: string): NitpickConfig {
     config.summary = raw.summary;
   }
 
+  if (typeof raw.json === "string" || typeof raw.json === "boolean") {
+    config.json = raw.json;
+  }
+
+  if (typeof raw.exitOn === "string" && isValidExitOn(raw.exitOn)) {
+    config.exitOn = raw.exitOn;
+  }
+
+  if (typeof raw.nonInteractive === "boolean") {
+    config.nonInteractive = raw.nonInteractive;
+  }
+
   if (raw.reviewers && typeof raw.reviewers === "object") {
     config.reviewers = {};
     for (const [role, cfg] of Object.entries(raw.reviewers)) {
@@ -103,6 +125,9 @@ export interface MergedOptions {
   auto: boolean;
   postReview: boolean;
   summary: boolean;
+  json: string | boolean | undefined;
+  exitOn: ExitOnMode;
+  nonInteractive: boolean;
   reviewerConfigs: Record<string, ReviewerConfig>;
   scanners: {
     secrets: boolean;
@@ -120,6 +145,9 @@ export function mergeConfigWithFlags(
     auto?: boolean;
     postReview?: boolean;
     summary?: boolean;
+    json?: string | boolean;
+    exitOn?: ExitOnMode;
+    nonInteractive?: boolean;
     scanners?: { secrets: boolean; linter: boolean; dependencies: boolean };
     reviewerConfigs?: Record<string, ReviewerConfig>;
   }
@@ -134,6 +162,9 @@ export function mergeConfigWithFlags(
   const auto = flags.auto ?? config.auto ?? false;
   const postReview = flags.postReview ?? config.postReview ?? true;
   const summary = flags.summary ?? (config.summary !== false); // default true
+  const json = flags.json ?? config.json;
+  const exitOn = flags.exitOn ?? config.exitOn ?? "none";
+  const nonInteractive = flags.nonInteractive ?? config.nonInteractive ?? false;
 
   // Merge reviewer configs: config file as base, CLI flags override
   const reviewerConfigs: Record<string, ReviewerConfig> = {};
@@ -179,6 +210,9 @@ export function mergeConfigWithFlags(
     auto,
     postReview,
     summary,
+    json,
+    exitOn,
+    nonInteractive,
     reviewerConfigs,
     scanners,
   };

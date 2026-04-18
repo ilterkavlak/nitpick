@@ -49,15 +49,14 @@ export async function scanWithLinter(
   arenaId: string,
   owner: string,
   repo: string,
-  prNumber: number,
   baseSha: string,
   headSha: string,
-  options?: { commands?: string[]; modelKey?: string; onActivity?: () => void }
+  options?: { prNumber?: number; commands?: string[]; modelKey?: string; onActivity?: () => void }
 ): Promise<Finding[]> {
   const box = await createReviewerBox(options?.modelKey ?? "Haiku_4_5");
 
   try {
-    await setupRepo(box, owner, repo, prNumber, baseSha, headSha);
+    await setupRepo(box, owner, repo, baseSha, headSha, { prNumber: options?.prNumber });
 
     let prompt: string;
     if (options?.commands && options.commands.length > 0) {
