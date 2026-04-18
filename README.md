@@ -141,16 +141,23 @@ Run without arguments to browse repos and PRs interactively:
 nitpick
 ```
 
-This walks you through:
+This walks you through seven interactive steps before the run starts:
 
 1. **Select a repository** (searchable list of all repos your token can access)
 2. **Select a pull request** (open PRs in that repo)
 3. **Select reviewer roles** (multi-select, all checked by default)
 4. **Configure reviewers** (model and prompt per role — defaults are one Enter away)
-5. AI reviewers + scanners run in parallel with live output
-6. **PR summary** displays overview and hotspot files
-7. **Triage findings** (accept/dismiss each one)
-8. Verdict, markdown report, and optional GitHub PR review
+5. **Select scanners** (secrets, dependencies, linter — all checked by default)
+6. **Review options** (toggle PR summary, GitHub PR review posting, local markdown report)
+7. **Output** (markdown report path, if enabled)
+
+Then the review runs:
+
+- AI reviewers + scanners execute in parallel with live output
+- Verifier re-checks findings
+- **PR summary** displays overview and hotspot files
+- **Triage findings** (accept/dismiss each one)
+- Verdict, markdown report, and optional GitHub PR review
 
 ### Direct mode
 
@@ -179,7 +186,7 @@ Both refs must exist on GitHub (branches, tags, or commit SHAs). This is the mod
 | `--base <ref>` | Base ref (branch, tag, or SHA) for ref mode |
 | `--head <ref>` | Head ref for ref mode |
 | `--roles <roles>` | Comma-separated reviewer roles (default: all) |
-| `--output <file>` | Output markdown report path (default: `pr-review-<number>.md`) |
+| `--output <file>` | Output markdown report path (default: `pr-review-<number>.md` in PR mode, `ref-review-<base>...<head>.md` in ref mode) |
 | `--no-report` | Skip writing markdown report to local file |
 | `--auto` | Skip interactive triage — accept all findings automatically |
 | `--post-review` | Post verdict and inline comments as a GitHub PR review (PR mode only) |
