@@ -143,9 +143,44 @@ interface State {
   timer: ReturnType<typeof setInterval> | null;
   lastWidth: number;
   lastHeight: number;
+  restoreStdin: (() => void) | null;
 }
 
 let S: State | null = null;
+
+// Put stdin in raw mode so keystrokes don't echo into the dashboard and
+// arrow keys / enter don't scroll the layout. Re-raise SIGINT for Ctrl+C
+// since raw mode disables the kernel translation.
+function setupStdin(): (() => void) | null {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || typeof stdin.setRawMode !== "function") return null;
+
+  const wasRaw = stdin.isRaw;
+  const wasPaused = stdin.isPaused();
+
+  const onData = (chunk: Buffer | string): void => {
+    const s = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    if (s.includes("\x03")) process.kill(process.pid, "SIGINT");
+  };
+
+  try {
+    stdin.setRawMode(true);
+  } catch {
+    return null;
+  }
+  stdin.resume();
+  stdin.on("data", onData);
+
+  return () => {
+    stdin.removeListener("data", onData);
+    try {
+      stdin.setRawMode(wasRaw);
+    } catch {
+      // ignore — terminal may already be torn down
+    }
+    if (wasPaused) stdin.pause();
+  };
+}
 
 // ── Layout constants ───────────────────────────────────────────────
 const CW = 20;            // card inner width
@@ -354,7 +389,8 @@ function render(): void {
   buf.push(foot + " ".repeat(Math.max(0, tw - vlen(foot))));
 
   const prefix = resized ? `${CLR}${HOME}` : HOME;
-  process.stdout.write(prefix + buf.join("\n"));
+  const EOL = `${ESC}[K`;
+  process.stdout.write(prefix + buf.join(`${EOL}\n`) + EOL);
 }
 
 function timeSince(ts: number, t0: number): string {
@@ -375,11 +411,14 @@ export function startDashboard(title: string, roles: string[]): void {
     timer: null,
     lastWidth: process.stdout.columns || 80,
     lastHeight: process.stdout.rows || 40,
+    restoreStdin: null,
   };
 
   for (const role of roles) {
     S.workers.set(role, { role, status: "queued", findings: 0 });
   }
+
+  S.restoreStdin = setupStdin();
 
   process.stdout.write(HIDE + CLR);
   render();
@@ -508,6 +547,9 @@ export function stopDashboard(): DashboardSummary {
     clearInterval(S.timer);
     S.timer = null;
   }
+
+  S.restoreStdin?.();
+  S.restoreStdin = null;
 
   process.stdout.removeListener("resize", render);
 

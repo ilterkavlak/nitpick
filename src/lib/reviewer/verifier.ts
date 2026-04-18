@@ -18,6 +18,15 @@ const verifierResponseSchema = z.object({
       note: z.string(),
     })
   ),
+  duplicateGroups: z
+    .array(
+      z.object({
+        findingIds: z.array(z.string()).min(2),
+        keepFindingId: z.string(),
+        reason: z.string(),
+      })
+    )
+    .optional(),
   summary: z.string(),
 });
 
@@ -70,7 +79,74 @@ Verification rules:
 - When in doubt between confirming and rejecting, lean towards confirming
 - Provide a brief, specific note explaining each verification decision
 
+After verification, identify DUPLICATE findings — separate findings (often from different reviewers) that describe the same underlying issue. Two findings are duplicates when they:
+- Reference the same root cause in the same code location (same file, overlapping lines or the same logical construct), AND
+- Would be fixed by the same change, even if titles, categories, severities, or descriptions differ
+
+For each duplicate group, populate "duplicateGroups" with:
+- "findingIds": all finding IDs in the group (>= 2)
+- "keepFindingId": the single best representative — prefer the one with the most accurate description, then the highest confidence, then the highest severity
+- "reason": a one-sentence explanation of why these are the same issue
+
+Do NOT group findings that touch the same file but describe genuinely different problems. Only group true duplicates of the same underlying defect.
+
 Respond with your verification results as structured output.`;
+}
+
+interface DuplicateGroup {
+  findingIds: string[];
+  keepFindingId: string;
+  reason: string;
+}
+
+const SEVERITY_RANK: Record<string, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+  info: 0,
+};
+
+function pickKeeper(group: Finding[], preferredId: string): Finding {
+  const preferred = group.find((f) => f.id === preferredId);
+  if (preferred) return preferred;
+  return [...group].sort((a, b) => {
+    const sev = (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0);
+    if (sev !== 0) return sev;
+    return (b.confidence ?? 0) - (a.confidence ?? 0);
+  })[0];
+}
+
+function dedupeVerified(
+  verified: Finding[],
+  groups: DuplicateGroup[]
+): { verified: Finding[]; rejected: Finding[] } {
+  if (groups.length === 0) return { verified, rejected: [] };
+
+  const byId = new Map(verified.map((f) => [f.id, f]));
+  const removed = new Set<string>();
+  const rejected: Finding[] = [];
+
+  for (const group of groups) {
+    const members = group.findingIds
+      .map((id) => byId.get(id))
+      .filter((f): f is Finding => !!f && !removed.has(f.id));
+    if (members.length < 2) continue;
+
+    const keeper = pickKeeper(members, group.keepFindingId);
+    const note = `Duplicate of ${keeper.id} (${keeper.reviewerRole}) — ${group.reason}`;
+
+    for (const f of members) {
+      if (f.id === keeper.id) continue;
+      removed.add(f.id);
+      rejected.push({ ...f, verified: false, verifierNote: note });
+    }
+  }
+
+  return {
+    verified: verified.filter((f) => !removed.has(f.id)),
+    rejected,
+  };
 }
 
 /**
@@ -168,9 +244,14 @@ export async function verifyFindings(
       verified.push(updated);
     }
 
-    return {
+    const { verified: deduped, rejected: dupRejected } = dedupeVerified(
       verified,
-      rejected,
+      run.result.duplicateGroups ?? []
+    );
+
+    return {
+      verified: deduped,
+      rejected: [...rejected, ...dupRejected],
       summary: run.result.summary,
     };
   } catch {

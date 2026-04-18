@@ -3,6 +3,10 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+  "engines": {
+    "node": ">=22"
+  },
   "files": [
     "bin",
     "src",
@@ -16,21 +20,22 @@
   "scripts": {
     "review": "tsx src/cli/index.ts review",
     "start": "tsx src/cli/index.ts",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.3.0",
-    "@upstash/box": "latest",
-    "nanoid": "^5",
-    "tsx": "^4",
-    "yaml": "^2.8.2",
-    "zod": "^3"
+    "@inquirer/prompts": "^8.4.1",
+    "@upstash/box": "^0.1.36",
+    "nanoid": "^5.1.9",
+    "tsx": "^4.21.0",
+    "yaml": "^2.8.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22",
-    "@typescript-eslint/eslint-plugin": "^8.57.0",
-    "@typescript-eslint/parser": "^8.57.0",
-    "eslint": "^9.39.4",
-    "typescript": "^5"
+    "@types/node": "^22.19.17",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "eslint": "^10.2.1",
+    "typescript": "^6.0.3"
   }
 }
