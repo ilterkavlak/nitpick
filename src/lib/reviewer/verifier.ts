@@ -163,21 +163,24 @@ export async function verifyFindings(
   findings: Finding[],
   owner: string,
   repo: string,
-  prNumber: number,
   baseSha: string,
   headSha: string,
-  reviewerModelKey?: string,
-  onActivity?: () => void
+  options: {
+    prNumber?: number;
+    reviewerModelKey?: string;
+    onActivity?: () => void;
+  } = {}
 ): Promise<{ verified: Finding[]; rejected: Finding[]; summary: string }> {
   if (findings.length === 0) {
     return { verified: [], rejected: [], summary: "No findings to verify." };
   }
 
+  const { prNumber, reviewerModelKey, onActivity } = options;
   const verifierModel = pickVerifierModel(reviewerModelKey);
   const box = await createReviewerBox(verifierModel);
 
   try {
-    await setupRepo(box, owner, repo, prNumber, baseSha, headSha);
+    await setupRepo(box, owner, repo, baseSha, headSha, { prNumber });
 
     const prompt = buildVerifierPrompt(findings);
 

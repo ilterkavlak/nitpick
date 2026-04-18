@@ -168,13 +168,17 @@ export async function createReviewerBox(modelKey?: string) {
   return box;
 }
 
+export interface SetupRepoOptions {
+  prNumber?: number;
+}
+
 export async function setupRepo(
   box: Awaited<ReturnType<typeof Box.create>>,
   owner: string,
   repo: string,
-  prNumber: number,
   baseSha: string,
-  headSha: string
+  headSha: string,
+  options?: SetupRepoOptions
 ) {
   if (!/^[0-9a-f]{7,40}$/i.test(baseSha) || !/^[0-9a-f]{7,40}$/i.test(headSha)) {
     throw new Error("Invalid commit SHA received for diff generation");
@@ -182,10 +186,18 @@ export async function setupRepo(
 
   await box.git.clone({ repo: `https://github.com/${owner}/${repo}` });
   await box.cd(repo);
-  await box.git.exec({
-    args: ["fetch", "origin", `pull/${prNumber}/head:pr-${prNumber}`],
-  });
-  await box.git.checkout({ branch: `pr-${prNumber}` });
+
+  if (options?.prNumber !== undefined) {
+    await box.git.exec({
+      args: ["fetch", "origin", `pull/${options.prNumber}/head:pr-${options.prNumber}`],
+    });
+    await box.git.checkout({ branch: `pr-${options.prNumber}` });
+  } else {
+    // Ref mode: fetch both SHAs explicitly and check out head
+    await box.git.exec({ args: ["fetch", "origin", baseSha] });
+    await box.git.exec({ args: ["fetch", "origin", headSha] });
+    await box.git.exec({ args: ["checkout", headSha] });
+  }
 
   // Prepare diff artifacts for focused review
   await box.exec.command(

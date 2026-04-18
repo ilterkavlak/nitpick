@@ -36,8 +36,8 @@ export async function executeReviewerJob(
 
     box = await createReviewerBox(config?.model);
 
-    // Clone and checkout PR
-    await setupRepo(box, owner, repo, prNumber, baseSha, headSha);
+    // Clone and checkout PR (or ref range)
+    await setupRepo(box, owner, repo, baseSha, headSha, { prNumber });
 
     // Build role-specific prompt
     const prompt = buildReviewerPrompt(role, baseSha, headSha, repo, config?.promptOverride);

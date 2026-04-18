@@ -186,3 +186,91 @@ export async function fetchPrMetadata(
     deletions: data.deletions,
   };
 }
+
+export interface CompareMetadata {
+  baseSha: string;
+  headSha: string;
+  baseRef: string;
+  headRef: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  aheadBy: number;
+  behindBy: number;
+}
+
+const githubCompareSchema = z.object({
+  merge_base_commit: z.object({ sha: z.string() }),
+  base_commit: z.object({ sha: z.string() }),
+  status: z.string(),
+  ahead_by: z.number(),
+  behind_by: z.number(),
+  total_commits: z.number(),
+  commits: z.array(z.object({ sha: z.string() })),
+  files: z
+    .array(
+      z.object({
+        filename: z.string(),
+        additions: z.number(),
+        deletions: z.number(),
+      })
+    )
+    .optional(),
+});
+
+export async function fetchCompareMetadata(
+  owner: string,
+  repo: string,
+  base: string,
+  head: string
+): Promise<CompareMetadata> {
+  const res = await githubGet(
+    `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`
+  );
+  const raw = await res.json();
+  const data = githubCompareSchema.parse(raw);
+
+  // Use merge base as the "base" for diff semantics (mirrors PR behavior).
+  const mergeBaseSha = data.merge_base_commit.sha;
+  const headSha =
+    data.commits.length > 0
+      ? data.commits[data.commits.length - 1].sha
+      : data.base_commit.sha;
+
+  const files = data.files ?? [];
+  const additions = files.reduce((acc, f) => acc + f.additions, 0);
+  const deletions = files.reduce((acc, f) => acc + f.deletions, 0);
+
+  return {
+    baseSha: mergeBaseSha,
+    headSha,
+    baseRef: base,
+    headRef: head,
+    changedFiles: files.length,
+    additions,
+    deletions,
+    aheadBy: data.ahead_by,
+    behindBy: data.behind_by,
+  };
+}
+
+export async function fetchCompareDiff(
+  owner: string,
+  repo: string,
+  base: string,
+  head: string
+): Promise<string> {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+    {
+      headers: {
+        ...githubHeaders(),
+        Accept: "application/vnd.github.v3.diff",
+      },
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`GitHub API error fetching compare diff: ${res.status} ${res.statusText}`);
+  }
+  return res.text();
+}

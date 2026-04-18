@@ -3,21 +3,28 @@ export type ReviewerRole = "security" | "performance" | "architecture" | "testin
 export type ScannerRole = "secrets" | "linter" | "dependencies";
 export type AnyRole = ReviewerRole | ScannerRole;
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
+export type ReviewMode = "pr" | "ref";
+export type ExitOnMode = "none" | "findings" | "blockers" | "changes-requested";
 
 export interface ArenaSession {
   id: string;
+  mode: ReviewMode;
   repoOwner: string;
   repoName: string;
-  prNumber: number;
-  prUrl: string;
-  prTitle: string;
-  prAuthor: string;
   baseSha: string;
   headSha: string;
   selectedRoles: ReviewerRole[];
   status: ArenaStatus;
   createdAt: string;
   completedAt?: string;
+  // PR-mode only
+  prNumber?: number;
+  prUrl?: string;
+  prTitle?: string;
+  prAuthor?: string;
+  // Ref-mode only
+  baseRef?: string;
+  headRef?: string;
 }
 
 export interface ReviewerRun {
@@ -94,9 +101,9 @@ export interface WorkerPayload {
   role: ReviewerRole;
   owner: string;
   repo: string;
-  prNumber: number;
   baseSha: string;
   headSha: string;
+  prNumber?: number;
   config?: ReviewerConfig;
 }
 
@@ -119,6 +126,9 @@ export interface NitpickConfig {
   output?: string;
   postReview?: boolean;
   summary?: boolean;
+  json?: string | boolean;
+  exitOn?: ExitOnMode;
+  nonInteractive?: boolean;
   reviewers?: Partial<Record<ReviewerRole, ReviewerConfig>>;
   scanners?: {
     secrets?: boolean | ScannerConfig;
