@@ -133,8 +133,6 @@ pnpm unlink --global nitpick
 | CI gate (fail job on blockers) | `nitpick review <pr-url> --auto --non-interactive --exit-on blockers` |
 | Coding agent fix loop | `nitpick review --repo org/repo --base main --head feature --auto --non-interactive --json - --exit-on blockers` |
 
-> Commands below assume `nitpick` is on your `PATH` via the global install in [Setup](#setup). If you are hacking on nitpick itself without a global install, substitute `pnpm start` for `nitpick` and `pnpm review` for `nitpick review` (the `pnpm` scripts forward flags the same way).
-
 ### Interactive mode
 
 Run without arguments to browse repos and PRs interactively:
@@ -493,7 +491,9 @@ Interactive model choices are populated from the installed `@upstash/box` SDK at
 - OpenAI Codex models may also be available depending on SDK version.
 - Verifier defaults to a different model family than reviewers when possible.
 
-## Scripts
+## Contributor scripts
+
+Scripts for working on the nitpick codebase itself (not needed if you only want to use the installed `nitpick` command):
 
 | Script | Description |
 | --- | --- |
