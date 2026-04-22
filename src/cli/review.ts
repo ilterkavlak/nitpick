@@ -22,6 +22,7 @@ import {
 } from "./dashboard";
 import type { DashboardSummary } from "./dashboard";
 import { generateMarkdownReport } from "./markdown";
+import { renderMarkdownToTerminal } from "./markdown-render";
 import { triageFindings } from "./triage";
 import { fetchCompareDiff, fetchPrDiff } from "../lib/github";
 import { generatePrSummary } from "../lib/summarizer";
@@ -807,6 +808,15 @@ export async function runReview(
       );
       writeFileSync(mdPath, report, "utf-8");
       doneReport(mdPath);
+
+      // In interactive / TTY mode, echo the rendered report so the reader
+      // doesn't have to open the file to see the findings. Skip when JSON
+      // is going to stdout — it would corrupt the machine-readable output.
+      if (process.stdout.isTTY && !jsonToStdout) {
+        console.log("");
+        console.log(renderMarkdownToTerminal(report));
+        console.log("");
+      }
     }
 
     return snapshot();

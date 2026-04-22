@@ -160,7 +160,7 @@ export function mergeConfigWithFlags(
   const writeReport = flags.writeReport ?? config.report ?? false;
   const outputPath = flags.outputPath ?? config.output;
   const auto = flags.auto ?? config.auto ?? false;
-  const postReview = flags.postReview ?? config.postReview ?? true;
+  const postReview = flags.postReview ?? config.postReview ?? false;
   const summary = flags.summary ?? (config.summary !== false); // default true
   const json = flags.json ?? config.json;
   const exitOn = flags.exitOn ?? config.exitOn ?? "none";

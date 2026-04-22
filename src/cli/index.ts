@@ -248,6 +248,7 @@ async function main() {
   if (target) {
     const merged = mergeConfigWithFlags(config, sharedFlags);
     const result = await runReview(target, { mergedConfig: merged });
+    releaseStdin();
     process.exit(result?.exitCode ?? 0);
   }
 
@@ -290,7 +291,21 @@ async function main() {
     prNumber: parsedPr.prNumber,
   };
   const result = await runReview(interactiveTarget, { mergedConfig: merged });
+  releaseStdin();
   process.exit(result?.exitCode ?? 0);
+}
+
+// Release any stdin ref-count inherited from inquirer/dashboard/etc so that
+// we don't rely solely on process.exit() to kick a hung event loop free.
+function releaseStdin(): void {
+  try {
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === "function") {
+      process.stdin.setRawMode(false);
+    }
+    process.stdin.pause();
+  } catch {
+    // ignore — stdin may already be detached
+  }
 }
 
 // Ensure boxes are destroyed on SIGTERM (e.g. container shutdown, kill)

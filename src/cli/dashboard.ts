@@ -151,12 +151,24 @@ let S: State | null = null;
 // Put stdin in raw mode so keystrokes don't echo into the dashboard and
 // arrow keys / enter don't scroll the layout. Re-raise SIGINT for Ctrl+C
 // since raw mode disables the kernel translation.
-function setupStdin(): (() => void) | null {
-  const stdin = process.stdin;
+//
+// Exported for testing. `stdin` defaults to process.stdin in production;
+// tests pass a duck-typed stream so we don't have to emulate a real TTY.
+export interface StdinLike {
+  isTTY?: boolean;
+  isRaw?: boolean;
+  setRawMode?: (mode: boolean) => unknown;
+  isPaused: () => boolean;
+  resume: () => unknown;
+  pause: () => unknown;
+  on: (event: "data", listener: (chunk: Buffer | string) => void) => unknown;
+  removeListener: (event: "data", listener: (chunk: Buffer | string) => void) => unknown;
+}
+
+export function setupStdin(stdin: StdinLike = process.stdin as unknown as StdinLike): (() => void) | null {
   if (!stdin.isTTY || typeof stdin.setRawMode !== "function") return null;
 
-  const wasRaw = stdin.isRaw;
-  const wasPaused = stdin.isPaused();
+  const wasRaw = stdin.isRaw ?? false;
 
   const onData = (chunk: Buffer | string): void => {
     const s = typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -174,11 +186,16 @@ function setupStdin(): (() => void) | null {
   return () => {
     stdin.removeListener("data", onData);
     try {
-      stdin.setRawMode(wasRaw);
+      stdin.setRawMode?.(wasRaw);
     } catch {
       // ignore — terminal may already be torn down
     }
-    if (wasPaused) stdin.pause();
+    // Always pause: setupStdin unconditionally called resume() above, which
+    // ref-counted stdin onto the event loop. If we don't pause on teardown,
+    // the process hangs after runReview resolves even though nothing is
+    // reading stdin anymore. Any later consumer (e.g. inquirer for triage)
+    // resumes stdin on its own.
+    stdin.pause();
   };
 }
 

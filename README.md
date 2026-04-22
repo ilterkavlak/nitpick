@@ -82,19 +82,22 @@ Install as executable:
 
 ```bash
 pnpm pack
-pnpm add -g ./nitpick-*.tgz
+pnpm add -g "$PWD"/nitpick-*.tgz
 nitpick --help
 ```
 
 This installs a real global package copy, so `nitpick` keeps working even if you delete this repo folder later.
 
+Note: `pnpm add -g` resolves relative paths against pnpm's global directory, not your cwd, so the tarball path must be absolute (`"$PWD"/...` or a full path).
+
 If you hit issues after updating, do a clean reinstall:
 
 ```bash
 pnpm remove -g nitpick
+# If nitpick was installed with npm instead of pnpm, also run: npm uninstall -g nitpick
 rm -f nitpick-*.tgz
 pnpm pack
-pnpm add -g ./nitpick-*.tgz
+pnpm add -g "$PWD"/nitpick-*.tgz
 hash -r
 nitpick --help
 ```
@@ -508,6 +511,7 @@ Scripts for working on the nitpick codebase itself (not needed if you only want 
 | `pnpm review` | Run CLI review (pass `<url>` and flags) |
 | `pnpm lint` | Run ESLint on `src/` |
 | `pnpm typecheck` | Run TypeScript type checker (`tsc --noEmit`) |
+| `pnpm test` | Run the regression test suite (`node --test` via `tsx`) |
 
 ## How it works
 

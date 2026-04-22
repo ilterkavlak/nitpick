@@ -21,7 +21,8 @@
     "review": "tsx src/cli/index.ts review",
     "start": "tsx src/cli/index.ts",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.1",
