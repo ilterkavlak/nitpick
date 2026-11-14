@@ -1,4 +1,5 @@
-import { createReviewerBox, setupRepo, deleteTrackedBox } from "./box";
+import { createReviewerBox, setupRepo, deleteTrackedBox, FAST_MODEL_KEY } from "./box";
+import { stripControlChars } from "./utils";
 import type { PrSummary } from "./types";
 
 const SUMMARY_PROMPT = `You are a PR summarizer. Analyze the pull request diff and provide a concise summary.
@@ -23,9 +24,9 @@ export async function generatePrSummary(
   repo: string,
   baseSha: string,
   headSha: string,
-  options: { prNumber?: number; modelKey?: string } = {}
+  options: { prNumber?: number; modelKey?: string; gitToken?: string } = {}
 ): Promise<PrSummary> {
-  const box = await createReviewerBox(options.modelKey ?? "Haiku_4_5");
+  const box = await createReviewerBox(options.modelKey ?? FAST_MODEL_KEY, options.gitToken);
 
   try {
     await setupRepo(box, owner, repo, baseSha, headSha, { prNumber: options.prNumber });
@@ -49,15 +50,20 @@ export async function generatePrSummary(
     const parsed = JSON.parse(jsonMatch[0]);
 
     return {
-      overview: typeof parsed.overview === "string" ? parsed.overview : "No overview available.",
-      keyChanges: Array.isArray(parsed.keyChanges) ? parsed.keyChanges.filter((c: unknown) => typeof c === "string") : [],
-      hotspotFiles: Array.isArray(parsed.hotspotFiles) ? parsed.hotspotFiles.filter((f: unknown) => typeof f === "string") : [],
+      overview: typeof parsed.overview === "string" ? stripControlChars(parsed.overview) : "No overview available.",
+      keyChanges: stringList(parsed.keyChanges),
+      hotspotFiles: stringList(parsed.hotspotFiles),
     };
   } catch {
     return fallbackSummary();
   } finally {
     await deleteTrackedBox(box);
   }
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string").map(stripControlChars);
 }
 
 function fallbackSummary(): PrSummary {

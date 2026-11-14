@@ -1,217 +1,195 @@
-# Nitpick
+<div align="center">
 
-A CLI tool that runs multiple AI reviewer roles and automated scanners against a GitHub pull request in parallel, lets you triage the findings, then generates a verdict with a merge recommendation and a markdown report.
+# 🔎 Nitpick
+
+**Parallel AI code review for GitHub pull requests, run in isolated sandboxes.**
+
+[![CI](https://github.com/ilterkavlak/nitpick/actions/workflows/lint-main.yml/badge.svg)](https://github.com/ilterkavlak/nitpick/actions/workflows/lint-main.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](package.json)
+
+</div>
+
+Nitpick runs several specialized AI reviewers (security, performance, architecture, testing, developer experience) and automated scanners against a pull request or a git ref range at the same time. A separate verifier agent then checks every finding against the code. You triage what remains, and Nitpick produces a risk score, a merge recommendation, a markdown report and, if you ask for it, a GitHub PR review with inline comments.
+
+Every AI agent runs in its own [Upstash Box](https://upstash.com/docs/box): a disposable, isolated sandbox. Repository code never runs on your machine.
+
+> [!NOTE]
+> **Honest disclosure: this project was vibe coded.** Most of the code was written with AI coding assistants under human direction and review. It has a test suite, CI checks, pinned dependencies and a documented [security model](#security-model), but it is young software. Read the security model before pointing it at private code, and give it least-privilege tokens.
+
+## Contents
+
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Installation](#installation)
+- [Authentication](#authentication)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Models](#models)
+- [Scanners](#scanners)
+- [Using Nitpick from AI agents and CI](#using-nitpick-from-ai-agents-and-ci)
+- [How it works](#how-it-works)
+- [Security model](#security-model)
+- [Development](#development)
+- [Known limitations](#known-limitations)
+- [Contributing](#contributing) · [Security policy](#reporting-a-vulnerability) · [License](#license)
 
 ## Features
 
-- **Interactive mode** — browse your GitHub repos, pick a PR, select roles, configure models and prompts, all from the terminal
-- **Direct PR mode** — `nitpick review <pr-url>` to review a specific pull request
-- **Ref mode** — `--repo --base --head` to review a branch or commit range without opening a PR
-- **Agent/CI mode** — `--auto --non-interactive --json - --exit-on <mode>` for autonomous loops and CI gates
-- **5 AI reviewer roles**: `security`, `performance`, `architecture`, `testing`, `dx` — run any combination in parallel
-- **3 automated scanners**: `secrets`, `linter`, `dependencies` — run alongside AI reviewers
-- **PR summary & walkthrough** — AI-generated overview, key changes, and hotspot files before findings
-- **Verification stage** — a separate verifier agent confirms/adjusts/rejects findings before triage
-- **Per-reviewer configuration** — choose a different model or edit the system prompt for each role
-- **Finding triage** — after reviewers finish, walk through each finding and accept or dismiss it before the verdict is computed
-- **GitHub PR review comments** — post the verdict and inline comments directly on the PR with `--post-review`
-- **Secret detection** — regex-based scanning of added lines for API keys, tokens, private keys, and credentials
-- **Dependency vulnerability scanning** — queries OSV.dev for known vulnerabilities in newly added dependencies
-- **Linter integration** — auto-detects and runs project linters inside a sandbox, reports issues on changed files
-- **Structured JSON output** — stable schema emitted to stdout or a file, meant to be consumed by other agents or scripts
-- **Meaningful exit codes** — `--exit-on` maps findings/blockers/recommendation to exit codes suitable for CI gates and loop convergence
-- **`.nitpick.yaml` config** — set default roles, model, scanners, and reviewer overrides per repository
-- **Live terminal output** — severity-colored findings stream in as reviewers work
-- **Markdown report** — summary, blockers, all findings, risk score, merge recommendation, and suggested commits
+| | |
+| --- | --- |
+| **5 AI reviewer roles** | `security`, `performance`, `architecture`, `testing`, `dx`, in any combination, in parallel |
+| **3 scanners** | `secrets` (regex, local), `dependencies` ([OSV.dev](https://osv.dev)), `linter` (runs in a sandbox) |
+| **Verification stage** | A verifier on a different model family confirms, adjusts, deduplicates or rejects findings |
+| **PR summary** | Overview, key changes and hotspot files before you read the findings |
+| **Triage** | Accept or dismiss each finding before the verdict is computed (or `--auto`) |
+| **Verdict** | Risk score (0–100), merge recommendation, blockers, suggested commits |
+| **GitHub review** | Optional review with inline comments (`--post-review`) |
+| **Three modes** | Interactive picker, direct PR URL, or ref range (`--repo --base --head`) without a PR |
+| **Automation-friendly** | `--json` output with a stable schema, `--exit-on` gates, `--non-interactive` |
+| **Per-reviewer config** | Model and prompt override per role via flags, interactive setup or `.nitpick.yaml` |
 
-## Setup
+## Quick start
+
+```bash
+git clone https://github.com/ilterkavlak/nitpick.git && cd nitpick
+pnpm install
+export UPSTASH_BOX_API_KEY=...        # https://console.upstash.com
+pnpm start                            # interactive: pick a repo and a PR
+```
+
+Or review a specific public pull request without triage:
+
+```bash
+pnpm review https://github.com/org/repo/pull/42 --auto
+```
+
+## Installation
+
+**Requirements:** Node.js ≥ 22, [pnpm](https://pnpm.io) 10 (pinned via `packageManager`), an [Upstash Box](https://upstash.com/docs/box) API key with agent access, and optionally the [GitHub CLI](https://cli.github.com).
+
+Install as a global command from a local checkout:
 
 ```bash
 pnpm install
-cp .env.example .env
+pnpm pack
+pnpm add -g "$PWD"/nitpick-*.tgz
+nitpick --help
 ```
 
-Fill in your `.env`:
+`pnpm add -g` resolves relative paths against pnpm's global directory, so the tarball path must be absolute. The installed copy keeps working if you delete the checkout.
 
-| Variable | Description |
+<details>
+<summary>Reinstall, link for development, uninstall</summary>
+
+```bash
+# Clean reinstall after updating
+pnpm remove -g nitpick      # also `npm uninstall -g nitpick` if installed with npm
+rm -f nitpick-*.tgz && pnpm pack && pnpm add -g "$PWD"/nitpick-*.tgz && hash -r
+
+# Development symlink (breaks if the checkout moves)
+pnpm link --global
+pnpm unlink --global nitpick
+
+# Uninstall
+pnpm remove -g nitpick
+```
+
+</details>
+
+## Authentication
+
+Nitpick reads credentials from environment variables. It does **not** load `.env` files itself. Export them in your shell, use a tool such as [direnv](https://direnv.net), or `set -a; source .env; set +a` with a copy of [`.env.example`](.env.example).
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `UPSTASH_BOX_API_KEY` | Yes (or a fallback below) | Creates the sandboxes and runs the AI agents |
+| `GITHUB_READ_TOKEN` | For private repos | Reads PR metadata and diffs; cloned into the sandbox **only for private repositories** |
+| `GITHUB_REVIEW_TOKEN` | Only with `--post-review` | Posts the review; never sent to the sandbox |
+
+### GitHub tokens
+
+Use **fine-grained personal access tokens** scoped to the repositories you review:
+
+| Token | Repository permissions |
 | --- | --- |
-| `UPSTASH_BOX_API_KEY` | Upstash Box API key for running AI agents (optional if using keychain/1Password/command fallback) |
-| `GITHUB_READ_TOKEN` | Fine-grained PAT with **read-only** repo access (optional if `gh auth token` is available) |
-| `GITHUB_REVIEW_TOKEN` | Fine-grained PAT with **Pull requests: write** (optional if `gh auth token` has that scope; used for `--post-review`) |
+| `GITHUB_READ_TOKEN` | `Contents: Read`, `Pull requests: Read` |
+| `GITHUB_REVIEW_TOKEN` | `Pull requests: Read and write` |
 
-GitHub token fallback:
-- If `GITHUB_READ_TOKEN` / `GITHUB_REVIEW_TOKEN` are not set, Nitpick automatically tries `gh auth token`.
-- Run `gh auth login` once to use this flow.
+Public repositories can be reviewed with no GitHub token at all (GitHub's anonymous API rate limit applies).
 
-Box API key fallback (checked in this order):
+If a variable is unset, Nitpick falls back to `gh auth token`. That token is usually broad: it covers every repository your account can reach, often with write and workflow scopes. Prefer dedicated fine-grained tokens, especially for automation.
+
+### Upstash Box API key
+
+Nitpick looks for the key in this order:
+
 1. `UPSTASH_BOX_API_KEY`
-2. Credentials file at `~/.box/credentials` (or `NITPICK_BOX_CREDENTIALS_FILE`)
-3. macOS Keychain via `NITPICK_BOX_KEYCHAIN_SERVICE` (default: `nitpick_upstash_box_api_key`)
-4. 1Password via `NITPICK_BOX_OP_REF` (`op read <ref>`)
-5. Custom command via `NITPICK_BOX_API_KEY_COMMAND`
+2. Credentials file `~/.box/credentials` (`api_key=...`), or the path in `NITPICK_BOX_CREDENTIALS_FILE`
+3. macOS Keychain, service `NITPICK_BOX_KEYCHAIN_SERVICE` (default `nitpick_upstash_box_api_key`)
+4. 1Password, via `op read "$NITPICK_BOX_OP_REF"`
+5. The output of `NITPICK_BOX_API_KEY_COMMAND`
 
-First-run helper:
-- If no Box key is found and you are in interactive mode, Nitpick prompts for the key and asks where to save it:
-  - Auto (first available secure store)
-  - macOS Keychain
-  - `~/.box/credentials`
-  - Session-only (do not persist)
-
-Examples:
+When no key is found in an interactive terminal, Nitpick asks for it and offers to save it to the Keychain, the credentials file (mode `0600`) or the current session only.
 
 ```bash
 # macOS Keychain (store once)
 security add-generic-password -a "$USER" -s nitpick_upstash_box_api_key -w "<YOUR_UPSTASH_BOX_API_KEY>" -U
 
-# 1Password (in .env)
-NITPICK_BOX_OP_REF=op://Dev/Nitpick/UPSTASH_BOX_API_KEY
-
-# Credentials file location override (optional)
-NITPICK_BOX_CREDENTIALS_FILE=~/.box/credentials
-
-# Custom command (in .env)
-NITPICK_BOX_API_KEY_COMMAND='security find-generic-password -a "$USER" -s nitpick_upstash_box_api_key -w'
+# 1Password
+export NITPICK_BOX_OP_REF=op://Dev/Nitpick/UPSTASH_BOX_API_KEY
 ```
 
-Security model:
-- All Box git operations use `GITHUB_READ_TOKEN` only.
-- The only write path to GitHub is PR review/comment posting via `GITHUB_REVIEW_TOKEN`.
-- No git push/branch/commit operations are performed by this tool.
+The Box account needs an agent LLM key: either the Upstash-managed key or a key stored in the Upstash console. Without one, every reviewer fails with `agent API key is required`.
 
-Install as executable:
-
-```bash
-pnpm pack
-pnpm add -g "$PWD"/nitpick-*.tgz
-nitpick --help
-```
-
-This installs a real global package copy, so `nitpick` keeps working even if you delete this repo folder later.
-
-Note: `pnpm add -g` resolves relative paths against pnpm's global directory, not your cwd, so the tarball path must be absolute (`"$PWD"/...` or a full path).
-
-If you hit issues after updating, do a clean reinstall:
-
-```bash
-pnpm remove -g nitpick
-# If nitpick was installed with npm instead of pnpm, also run: npm uninstall -g nitpick
-rm -f nitpick-*.tgz
-pnpm pack
-pnpm add -g "$PWD"/nitpick-*.tgz
-hash -r
-nitpick --help
-```
-
-Development-only alternative:
-
-```bash
-pnpm link --global
-```
-
-`pnpm link --global` is a symlink to your local repo and will break if the repo is moved/deleted.
-
-Uninstall:
-
-```bash
-# Remove global install (tarball/registry install)
-pnpm remove -g nitpick
-```
-
-If you installed with `pnpm link --global`, unlink it too:
-
-```bash
-pnpm unlink --global nitpick
-```
+> [!IMPORTANT]
+> Use a **dedicated Box account or API key** for Nitpick. Account-level Box environment variables and global attached headers are injected into every sandbox, where repository code and agents can read or use them. Nitpick prints a warning at startup if it detects account-level environment variables.
 
 ## Usage
 
-### Which mode do I want?
-
-| Use case | Command shape |
+| Use case | Command |
 | --- | --- |
-| Browse repos and pick a PR by hand | `nitpick` |
-| Review a specific PR, human triage | `nitpick review <pr-url>` |
-| Review a PR, skip triage, post comments | `nitpick review <pr-url> --auto --post-review` |
-| Review a branch without opening a PR | `nitpick review --repo org/repo --base main --head feature` |
-| CI gate (fail job on blockers) | `nitpick review <pr-url> --auto --non-interactive --exit-on blockers` |
-| Coding agent fix loop | `nitpick review --repo org/repo --base main --head feature --auto --non-interactive --json - --exit-on blockers` |
+| Browse repos and pick a PR | `nitpick` |
+| Review a PR with human triage | `nitpick review <pr-url>` |
+| Review a PR, skip triage, post a GitHub review | `nitpick review <pr-url> --auto --post-review` |
+| Review a branch without a PR | `nitpick review --repo org/repo --base main --head feature` |
+| CI gate that fails on blockers | `nitpick review <pr-url> --auto --non-interactive --exit-on blockers` |
+| Coding-agent fix loop | `nitpick review --repo org/repo --base main --head feature --auto --non-interactive --json - --exit-on blockers` |
 
-### Interactive mode
+**Interactive mode** (`nitpick` with no arguments) walks you through seven steps: repository, pull request, reviewer roles, per-reviewer model and prompt, scanners, review options (summary, GitHub posting, report) and output path. The review then runs with a live dashboard, followed by verification, the PR summary, triage, the verdict and the report.
 
-Run without arguments to browse repos and PRs interactively:
-
-```bash
-nitpick
-```
-
-This walks you through seven interactive steps before the run starts:
-
-1. **Select a repository** (searchable list of all repos your token can access)
-2. **Select a pull request** (open PRs in that repo)
-3. **Select reviewer roles** (multi-select, all checked by default)
-4. **Configure reviewers** (model and prompt per role — defaults are one Enter away)
-5. **Select scanners** (secrets, dependencies, linter — all checked by default)
-6. **Review options** (toggle PR summary, GitHub PR review posting, local markdown report)
-7. **Output** (markdown report path, if enabled)
-
-Then the review runs:
-
-- AI reviewers + scanners execute in parallel with live output
-- Verifier re-checks findings
-- **PR summary** displays overview and hotspot files
-- **Triage findings** (accept/dismiss each one)
-- Verdict, markdown report, and optional GitHub PR review
-
-### Direct mode
-
-Pass a PR URL directly:
-
-```bash
-nitpick review https://github.com/org/repo/pull/42
-```
-
-### Ref mode (no PR required)
-
-Review the diff between two git refs without needing an open pull request:
-
-```bash
-nitpick review --repo org/repo --base main --head feature-branch --auto --json -
-```
-
-Both refs must exist on GitHub (branches, tags, or commit SHAs). This is the mode to use from CI or an autonomous agent loop, since it requires no PR and no human triage.
+**Ref mode** reviews the diff between any two refs that exist on GitHub (branches, tags or SHAs). It needs no PR and no human, which makes it the mode for CI and autonomous agents.
 
 ### Options
 
 | Flag | Description |
 | --- | --- |
-| `<github-pr-url>` | Positional — review a pull request |
-| `--repo <owner/name>` | Repository for ref mode |
-| `--base <ref>` | Base ref (branch, tag, or SHA) for ref mode |
-| `--head <ref>` | Head ref for ref mode |
+| `<github-pr-url>` | Review a pull request |
+| `--repo <owner/name>` · `--base <ref>` · `--head <ref>` | Ref mode target |
 | `--roles <roles>` | Comma-separated reviewer roles (default: all) |
-| `--output <file>` | Output markdown report path (default: `pr-review-<number>.md` in PR mode, `ref-review-<base>...<head>.md` in ref mode) |
-| `--no-report` | Skip writing markdown report to local file |
-| `--auto` | Skip interactive triage — accept all findings automatically |
-| `--post-review` | Post verdict and inline comments as a GitHub PR review (PR mode only) |
-| `--json <file\|->` | Write structured JSON report to file, or `-` for stdout |
-| `--exit-on <mode>` | Non-zero exit when: `none` (default), `findings`, `blockers`, `changes-requested` |
-| `--non-interactive` | Fail fast on missing credentials, never prompt, never enter interactive picker |
+| `--output <file>` | Markdown report path (default `pr-review-<number>.md` or `ref-review-<base>...<head>.md`) |
+| `--no-report` | Don't write a markdown report |
+| `--auto` | Skip triage and accept all verified findings |
+| `--post-review` | Post the verdict and inline comments as a GitHub review (PR mode only) |
+| `--json <file\|->` | Write the JSON report to a file, or `-` for stdout |
+| `--exit-on <mode>` | `none` (default), `findings`, `blockers`, `changes-requested` |
+| `--non-interactive` | Never prompt; fail fast on missing credentials or target |
 | `--help` | Show help |
 
-Note: when `--post-review` is enabled, Nitpick can still post a review body even if there are zero final findings (for example, after verification/triage). `--post-review` is ignored in ref mode.
+With `--post-review`, Nitpick posts a review body even when no findings remain after verification and triage.
 
 ### Exit codes
 
-| Exit code | Meaning |
+| Code | Meaning |
 | --- | --- |
-| `0` | Success (or `--exit-on none`, default) |
-| `1` | Fatal error (invalid flags, missing credentials in non-interactive mode, etc.) |
-| `2` | `--exit-on` condition matched (findings/blockers/changes requested) |
-| `130` | Interrupted with Ctrl+C |
+| `0` | Success, or `--exit-on none` |
+| `1` | Fatal error (invalid flags, missing credentials, …), or `--exit-on` is set and **every AI reviewer failed**, so the gate fails closed instead of passing an unreviewed change |
+| `2` | The `--exit-on` condition matched |
+| `130` | Interrupted (Ctrl+C) |
+| `143` | Terminated (SIGTERM) after sandbox cleanup |
 
-### JSON output shape
-
-Stable top-level fields emitted by `--json`:
+<details>
+<summary>JSON output schema</summary>
 
 ```json
 {
@@ -256,90 +234,80 @@ Stable top-level fields emitted by `--json`:
 }
 ```
 
-In ref mode `pr` is `null` and `refs` contains `{ "base": "...", "head": "..." }`.
+In ref mode `pr` is `null` and `refs` is `{ "base": "...", "head": "..." }`.
 
-### Examples
+</details>
+
+## Configuration
+
+Nitpick reads `.nitpick.yaml` (or `.nitpick.yml`) from the directory it runs in. That is the checkout root for `pnpm start` / `pnpm review`, and the package install directory for the global `nitpick` binary. CLI flags always override the file.
+
+```yaml
+roles: [security, performance, architecture]   # default reviewer roles
+model: Sonnet_5_5                               # default model for all reviewers
+auto: false                                     # skip triage
+report: true                                    # write the markdown report
+postReview: false                               # post a GitHub review
+summary: true                                   # generate the PR summary
+# json: report.json                             # true/false for stdout, or a file path
+exitOn: none                                    # none | findings | blockers | changes-requested
+nonInteractive: false                           # never prompt (agents/CI)
+
+reviewers:                                      # per-role overrides
+  security:
+    model: Opus_5_5
+  dx:
+    promptOverride: "Focus only on naming and readability."
+
+scanners:
+  secrets: true
+  dependencies: true
+  linter:
+    enabled: true
+    commands: [npm run lint]
+```
+
+## Models
+
+Model keys are the enum names from the installed [`@upstash/box`](https://www.npmjs.com/package/@upstash/box) SDK (`ClaudeCode` and `OpenAICodex`), so new models show up in the interactive picker as soon as the SDK is updated.
+
+| Stage | Default | Notes |
+| --- | --- | --- |
+| Reviewers | `Opus_5_5` | Override globally (`model:`) or per role |
+| PR summary, linter | `Haiku_5_5` | Fast, inexpensive |
+| Verifier | `GPT_6_1_Sol` | Uses a different provider than the reviewers; falls back to `Opus_5_5` if the reviewers use `GPT_6_1_Sol` |
+
+Other selectable models include `Fable_5_1`, `Sonnet_5_5` and the GPT-6 family. `Fable_5_2` arrives with `@upstash/box` 0.8.0, which the repository's 7-day minimum release age currently blocks.
+
+## Scanners
+
+- **Secrets.** Runs locally on the added lines of the diff. It detects AWS, GitHub, Slack, Stripe, Google, SendGrid, Twilio, npm and PyPI credentials, private key headers, credentials in database URLs, generic secret assignments, JWTs, and Bearer and Basic auth. Evidence shows only the first four characters of a match, never the source line.
+- **Dependencies.** Parses added lines in `package-lock.json`, `package.json`, `requirements*.txt`, `go.sum` and `Gemfile.lock`, and queries [OSV.dev](https://osv.dev) for known vulnerabilities in npm, PyPI, Go and RubyGems packages.
+- **Linter.** An agent in a sandbox detects and runs the project's linter (or the commands from `.nitpick.yaml`) on the changed files.
+
+## Using Nitpick from AI agents and CI
+
+Nitpick is built to be called by other agents (Claude Code, SDK-based agents, PR bots) and CI jobs. The building blocks are: ref mode (no PR needed), `--auto` (no triage), `--non-interactive` (never prompts), `--json` (machine-readable), `--exit-on` (exit code `2` means "not done yet") and `--no-report` (keeps the working tree clean).
 
 ```bash
-# Interactive — browse repos and PRs
-nitpick
-
-# Review a specific PR with all roles
-nitpick review https://github.com/org/repo/pull/42
-
-# Only security and performance, skip triage
-nitpick review https://github.com/org/repo/pull/42 --roles security,performance --auto
-
-# Custom output path
-nitpick review https://github.com/org/repo/pull/42 --output report.md
-
-# Run without writing a local markdown report
-nitpick review https://github.com/org/repo/pull/42 --no-report
-
-# Post review to GitHub
-nitpick review https://github.com/org/repo/pull/42 --auto --post-review
-
-# Agent/CI run: ref mode, JSON to stdout, non-zero exit when blockers exist
-nitpick review --repo org/repo --base main --head feature \
-  --auto --non-interactive --json - --exit-on blockers
+nitpick review --repo org/repo --base main --head "$(git rev-parse --abbrev-ref HEAD)" \
+  --auto --non-interactive --no-report --json nitpick.json --exit-on blockers
 ```
 
-## Agentic workflow
+`0` means no blockers. `2` means blockers exist: read the JSON, fix, push and rerun. `1` means something failed, including every reviewer failing; surface stderr and don't retry blindly. The `stats` block (`findingsTotal`, `blockers`, `riskScore`, `mergeRecommendation`) is enough to branch on. `acceptedFindings` holds the full instructions (`severity`, `filePath`, `lineStart`, `title`, `description`, `recommendation`).
 
-Nitpick is designed to be called from another AI agent (Claude Code, an autonomous SWE bot, a CI job that wraps an LLM, etc.). The building blocks:
+<details>
+<summary>Ready-to-use prompts</summary>
 
-- **Ref mode** (`--repo --base --head`) — no PR needed, just two refs on GitHub
-- **`--auto`** — no human triage, all verified findings are accepted
-- **`--non-interactive`** — fails fast if credentials or target are missing; never prompts
-- **`--json -`** — structured output to stdout for the calling agent to parse
-- **`--exit-on blockers`** (or `changes-requested`) — exit code 2 signals "not done yet"
-- **`--no-report`** — don't litter the working tree with markdown files
-
-The canonical agent invocation:
-
-```bash
-nitpick review \
-  --repo org/repo \
-  --base main \
-  --head $(git rev-parse --abbrev-ref HEAD) \
-  --auto --non-interactive --no-report \
-  --json - --exit-on blockers
-```
-
-Exit code `0` → no blockers, ship it. Exit code `2` → blockers exist, read JSON, fix, push, rerun.
-
-### Parsing the result
-
-The JSON report has a small, stable `stats` block the caller can key off without parsing every finding:
-
-```json
-{
-  "exitCode": 2,
-  "stats": {
-    "findingsTotal": 5,
-    "findingsAccepted": 5,
-    "blockers": 2,
-    "riskScore": 68,
-    "mergeRecommendation": "request_changes"
-  }
-}
-```
-
-The `acceptedFindings` array contains the full findings (with `severity`, `filePath`, `lineStart`, `title`, `description`, `recommendation`) — these are the instructions the calling agent should act on. `verdict.suggestedCommits` is a list of small scoped commit messages the verdict agent suggests to land the fixes.
-
-### Prompts
-
-Copy any of these into a coding agent (Claude Code, an SDK-based agent, a PR bot). They assume the agent can run shell commands and edit files, and that the nitpick CLI is already installed and authenticated.
-
-#### Prompt: one-shot review
+**One-shot review**
 
 ```
 You have nitpick installed. Review the changes on the current branch against main:
 
   nitpick review --repo <owner>/<repo> --base main --head <current-branch> \
-    --auto --non-interactive --no-report --json -
+    --auto --non-interactive --no-report --json nitpick.json
 
-Read the resulting JSON from stdout. Summarise for me:
+Read nitpick.json and summarise for me:
 - the merge recommendation (verdict.mergeRecommendation)
 - any blockers (verdict.blockers) with file:line and a one-sentence explanation
 - the risk score
@@ -347,7 +315,7 @@ Read the resulting JSON from stdout. Summarise for me:
 Do not modify any files. Just report what nitpick found.
 ```
 
-#### Prompt: fix-until-clean loop
+**Fix-until-clean loop**
 
 ```
 You are a coding agent working on branch <branch>. Use nitpick as a gate.
@@ -356,184 +324,155 @@ Loop, at most 5 iterations:
   1. Push the current branch: `git push origin <branch>`
   2. Run:
         nitpick review --repo <owner>/<repo> --base main --head <branch> \
-          --auto --non-interactive --no-report --json - --exit-on blockers
-  3. Capture the JSON from stdout and inspect:
-       - exit code 0 → you are done, stop the loop and report success
-       - exit code 2 → read verdict.blockers; for each blocker, edit the
+          --auto --non-interactive --no-report --json nitpick.json --exit-on blockers
+  3. Inspect the exit code:
+       - 0 → you are done, stop the loop and report success
+       - 2 → read verdict.blockers from nitpick.json; for each blocker, edit the
          file at filePath:lineStart and apply the recommendation
-  4. Stage and commit the fixes with a short message referencing the
-     blocker titles. Go back to step 1.
+       - anything else → stop and surface the stderr output
+  4. Commit the fixes with a short message referencing the blocker titles.
+     Go back to step 1.
 
 Rules:
 - Never force-push, rebase shared history, or delete branches.
-- If the same blocker title appears in two consecutive iterations with no
-  change in file/line, stop looping and surface it to me — you are stuck.
-- After the final successful run, print the JSON `stats` block and the
-  risk score.
-- If exit code is neither 0 nor 2 (e.g. 1 for a fatal error), stop and
-  surface the stderr output.
+- If the same blocker appears in two consecutive iterations with no change in
+  file/line, stop and surface it to me — you are stuck.
+- After the final successful run, print the JSON `stats` block.
 ```
 
-#### Prompt: pre-PR polish
+**Pre-PR polish**
 
 ```
-Before I open a PR for branch <branch>, run nitpick against main in ref
-mode and fix anything it flags as a blocker or high-severity finding.
+Before I open a PR for branch <branch>, run nitpick against main in ref mode and
+fix anything it flags as a blocker or high-severity finding.
 
   nitpick review --repo <owner>/<repo> --base main --head <branch> \
-    --auto --non-interactive --no-report --json -
+    --auto --non-interactive --no-report --json nitpick.json
 
-For each item in `acceptedFindings` where severity is "critical" or "high",
-apply the recommendation. Ignore "medium"/"low"/"info" unless it is also a
-blocker in verdict.blockers.
-
-Commit each group of related fixes together with messages from
-verdict.suggestedCommits when applicable. Stop after one pass — do not
-loop. Then push and open the PR.
+For each item in `acceptedFindings` with severity "critical" or "high", apply the
+recommendation. Ignore "medium"/"low"/"info" unless it is also in verdict.blockers.
+Commit related fixes together, using verdict.suggestedCommits when applicable.
+Stop after one pass, then push and open the PR.
 ```
 
-#### Prompt: CI reviewer bot
+**CI reviewer bot**
 
 ```
 You run on every PR push via CI. For PR <pr-url>:
 
   nitpick review <pr-url> --auto --non-interactive --post-review \
-    --json - --exit-on changes-requested
+    --json nitpick.json --exit-on changes-requested
 
 - Exit 0: job passes. Post nothing else.
-- Exit 2: job fails. The review is already posted via --post-review.
-  Additionally, print the JSON `verdict.summary` and the top 3 blockers
-  (title + file:line) to the CI logs.
+- Exit 2: job fails. The review is already posted. Print verdict.summary and the
+  top 3 blockers (title + file:line) to the CI logs.
 - Any other exit: job fails with the stderr output. Do not retry.
-
-Do not comment on the PR from this job unless nitpick itself posted — the
-GitHub review is the single source of truth.
 ```
 
-### Safety rails
+</details>
 
-Things nitpick intentionally does **not** do, so the calling agent should not rely on them:
-
-- No `git push`, `git commit`, branch creation, or history rewrites — all write-paths to the repo are the caller's responsibility.
-- No network calls beyond the GitHub API (read-only) and Upstash Box (sandbox).
-- No persistence of findings between runs — each invocation is stateless. If the agent needs to detect "the same blocker keeps coming back," it must compare across invocations itself.
-
-## Configuration
-
-Create a `.nitpick.yaml` in your repository root to set defaults:
-
-```yaml
-# Default reviewer roles
-roles:
-  - security
-  - performance
-  - architecture
-
-# Default model for all reviewers
-model: Sonnet_4_6
-
-# Skip triage
-auto: false
-
-# Write markdown report to local file
-report: true
-
-# Post review to GitHub
-postReview: false
-
-# Generate PR summary
-summary: true
-
-# Emit JSON report (true/false for stdout, or a file path)
-# json: report.json
-
-# Exit code policy: none | findings | blockers | changes-requested
-exitOn: none
-
-# Never prompt or enter interactive mode (agents/CI)
-nonInteractive: false
-
-# Per-reviewer overrides
-reviewers:
-  security:
-    model: Opus_4_6
-  dx:
-    promptOverride: "Focus only on naming and readability."
-
-# Scanner configuration
-scanners:
-  secrets: true
-  linter:
-    enabled: true
-    commands:
-      - npm run lint
-  dependencies: true
-```
-
-CLI flags always override `.nitpick.yaml` values.
-
-## Scanners
-
-### Secret detection
-
-Scans added lines in the PR diff for common secret patterns:
-- AWS keys, GitHub tokens, Slack tokens, Stripe keys, Google API keys
-- Private keys (RSA, SSH, PGP, EC)
-- Database connection strings with credentials
-- Generic password/secret/token assignments
-- JWT tokens, Bearer tokens, Basic auth
-
-Runs locally — no Box or API calls needed.
-
-### Dependency vulnerability scanning
-
-Parses lockfile diffs (package-lock.json, requirements.txt, go.sum, Gemfile.lock) for newly added dependencies and queries [OSV.dev](https://osv.dev) for known vulnerabilities. Supports npm, PyPI, Go, and RubyGems ecosystems.
-
-### Linter integration
-
-Auto-detects the project's linter (ESLint, pylint, golangci-lint, etc.) or uses commands from `.nitpick.yaml`. Runs inside an Upstash Box sandbox and reports issues on changed files.
-
-## Available models
-
-Interactive model choices are populated from the installed `@upstash/box` SDK at runtime.
-
-- ClaudeCode models are available for reviewers.
-- OpenAI Codex models may also be available depending on SDK version.
-- Verifier defaults to a different model family than reviewers when possible.
-
-## Contributor scripts
-
-Scripts for working on the nitpick codebase itself (not needed if you only want to use the installed `nitpick` command):
-
-| Script | Description |
-| --- | --- |
-| `pnpm start` | Launch interactive mode |
-| `pnpm review` | Run CLI review (pass `<url>` and flags) |
-| `pnpm lint` | Run ESLint on `src/` |
-| `pnpm typecheck` | Run TypeScript type checker (`tsc --noEmit`) |
-| `pnpm test` | Run the regression test suite (`node --test` via `tsx`) |
+What Nitpick deliberately does **not** do: no `git push`, commits, branch creation or history rewrites; no state kept between runs; no network calls other than GitHub, Upstash Box and OSV.dev.
 
 ## How it works
 
-1. Each AI reviewer role gets its own [Upstash Box](https://upstash.com/docs/box) — an isolated sandbox with the repo cloned and the PR checked out
-2. Scanners (secrets, dependencies, linter) run in parallel with AI reviewers
-3. A PR summary is generated using a lightweight AI model
-4. Role-specific AI agents analyze the diff and return structured findings with severity, confidence, file locations, and recommendations
-5. A verifier agent re-checks findings and can reject or adjust them
-6. Findings from all sources are deduplicated
-7. You triage findings interactively (or skip with `--auto`)
-8. A verdict is computed from accepted findings: risk score, merge recommendation (approve / request changes / needs discussion), blockers, and suggested fix commits
-9. Results are printed to the terminal and written as a markdown report
-10. Optionally, the verdict and inline comments are posted as a GitHub PR review
+```
+                 ┌──────────── Upstash Box (one per agent) ────────────┐
+ PR / ref ──▶    │ clone → checkout → diff → remove git credentials     │
+ metadata        │ → agent reviews the diff → structured findings      │
+                 └──────────────────────────────────────────────────────┘
+   security · performance · architecture · testing · dx · linter · summary
+                                   │
+ secrets + dependency scanners ────┤   (run locally / via OSV.dev, in parallel)
+                                   ▼
+                     verifier agent (different model family)
+                                   ▼
+                     triage (you, or --auto) → verdict
+                                   ▼
+             terminal output · markdown report · JSON · GitHub review
+```
 
-## Token Permissions
+1. Nitpick fetches PR or compare metadata from the GitHub API and checks whether the repository is private.
+2. Each reviewer role, the linter and the summarizer get their own Box. Inside it the repository is cloned and the head is checked out, the diff and the changed-files list are written, and stored git credentials are deleted before any agent runs.
+3. Agents return schema-validated findings (severity, confidence, file, line, evidence, recommendation). The local scanners run in parallel.
+4. A verifier agent on a different model family re-reads the code, then confirms, adjusts, deduplicates or rejects each finding.
+5. You triage. The verdict is computed from the accepted findings: a severity × confidence risk score, blockers (critical/high with ≥ 0.7 confidence) and a recommendation.
+6. Every Box is deleted when its job finishes, and again on exit, Ctrl+C or SIGTERM.
 
-Recommended fine-grained PAT setup:
+## Security model
 
-- `GITHUB_READ_TOKEN`:
-  - Repository access to target repo(s)
-  - `Contents: Read`
-  - `Pull requests: Read`
-- `GITHUB_REVIEW_TOKEN` (only if using `--post-review`):
-  - Repository access to target repo(s)
-  - `Pull requests: Write`
+Nitpick feeds **untrusted input** (the code, text and metadata of someone else's pull request) to LLM agents. A pull request can contain prompt injections or malicious build scripts. The design assumes that can happen.
+
+**Trust boundaries**
+
+| Runs on | What runs there | What it can access |
+| --- | --- | --- |
+| Your machine | The Nitpick CLI, the secrets scanner, verdict and reporting | Your tokens; never runs repository code |
+| Upstash Box (one per agent) | Agents and repository code (the linter may run `npm run lint`, etc.) | The cloned repository; **no GitHub credentials** once setup finishes |
+| GitHub | Metadata and diff reads; review posting with `--post-review` | Read token; the review token only when posting |
+| OSV.dev | Vulnerability lookups | Package names and versions from added dependency lines |
+
+**Credential handling**
+
+- **Public repositories** are cloned without any token: no GitHub credential enters the sandbox.
+- **Private repositories** need the read token for the clone. Box stores it in plaintext (`~/.git-credentials`, `~/.config/gh/hosts.yml`), so Nitpick deletes both files after setup and checks they are gone. If removal fails, the review aborts before any agent or repository code runs.
+- The **review token** is used only from your machine to post the review. It is never sent to a sandbox.
+- The **Box API key** stays on your machine and is never injected into a sandbox. Agents use an LLM key managed by Box.
+
+**Output handling**
+
+- Text from pull requests and LLMs (titles, findings, summaries, verifier notes, errors) has control characters removed before it reaches your terminal, which blocks ANSI/OSC escape-sequence injection.
+- Agent output is validated against a schema. Findings are posted only as review comments on the pull request under review.
+- Secret-scanner evidence never includes the line that contains the secret.
+
+**What leaves your machine**
+
+- **To Upstash Box and the selected LLM provider:** the repository contents and diff of the PR under review, plus the prompts. Check Upstash's and your model provider's data-handling terms before reviewing proprietary code.
+- **To OSV.dev:** names and versions of newly added dependencies.
+- **To GitHub:** API requests, and the review when you use `--post-review`.
+
+**Residual risks**
+
+- Sandboxes use Box's default network policy (`allow-all`), so repository code and agents can reach the internet. They hold no credentials, and for a private repository the PR author already has read access to its code. A restrictive egress policy is planned once the agent harness's required hosts are confirmed.
+- A prompt-injected agent can still write misleading findings. Verification and triage reduce this; treat findings as advice, not truth.
+- Account-level Box environment variables and global attached headers reach every sandbox. Use a dedicated Box key (see [Authentication](#upstash-box-api-key)).
+
+**Supply chain**
+
+Dependencies are locked (`--frozen-lockfile`), lifecycle scripts are disabled (`ignore-scripts`), and pnpm refuses package versions younger than 7 days (`minimum-release-age`). CI runs lint, typecheck, tests and `pnpm audit` with Actions pinned to commit SHAs and read-only permissions.
+
+## Development
+
+```bash
+pnpm install
+pnpm start          # interactive mode
+pnpm review <url>   # review from source
+pnpm lint           # ESLint
+pnpm typecheck      # tsc --noEmit
+pnpm test           # node --test via tsx
+```
+
+The code is TypeScript (ESM), run directly with `tsx`. The main directories:
+
+```
+src/cli/     argument parsing, interactive picker, dashboard, triage, rendering, reports
+src/lib/     Box sandbox lifecycle, GitHub API, auth, config, reviewer/verifier agents, scanners
+bin/         the `nitpick` executable
+```
+
+## Known limitations
+
+- `--json -` writes progress lines to stdout before the JSON document. For machine parsing, use `--json <file>`.
+- The global `nitpick` binary reads `.nitpick.yaml` and writes relative report paths in its install directory, not your current directory.
+- Nitpick reviews GitHub-hosted repositories only.
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `pnpm lint && pnpm typecheck && pnpm test` before opening a PR, keep changes focused, and add a regression test for any bug you fix.
+
+## Reporting a vulnerability
+
+Please **do not** open a public issue for security problems. See [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)

@@ -1,4 +1,4 @@
-import { createReviewerBox, setupRepo, deleteTrackedBox } from "../box";
+import { createReviewerBox, setupRepo, deleteTrackedBox, FAST_MODEL_KEY } from "../box";
 import { generateId } from "../utils";
 import type { Finding, Severity } from "../types";
 
@@ -51,9 +51,9 @@ export async function scanWithLinter(
   repo: string,
   baseSha: string,
   headSha: string,
-  options?: { prNumber?: number; commands?: string[]; modelKey?: string; onActivity?: () => void }
+  options?: { prNumber?: number; commands?: string[]; modelKey?: string; gitToken?: string; onActivity?: () => void }
 ): Promise<Finding[]> {
-  const box = await createReviewerBox(options?.modelKey ?? "Haiku_4_5");
+  const box = await createReviewerBox(options?.modelKey ?? FAST_MODEL_KEY, options?.gitToken);
 
   try {
     await setupRepo(box, owner, repo, baseSha, headSha, { prNumber: options?.prNumber });
@@ -91,8 +91,17 @@ If no issues found, output: []`;
     const issues: LintIssue[] = JSON.parse(jsonMatch[0]);
     if (!Array.isArray(issues) || issues.length === 0) return [];
 
-    // Filter out meta-errors
-    const realIssues = issues.filter((i) => i.file && i.line > 0);
+    // Agent output is untrusted: keep only well-formed issues (also drops meta-errors)
+    const realIssues = issues.filter(
+      (i) =>
+        typeof i?.file === "string" &&
+        i.file.length > 0 &&
+        Number.isInteger(i.line) &&
+        i.line > 0 &&
+        typeof i.rule === "string" &&
+        typeof i.message === "string" &&
+        typeof i.severity === "string"
+    );
 
     return realIssues.map((issue) => ({
       id: generateId(),

@@ -2,6 +2,7 @@
   "name": "nitpick",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "engines": {
@@ -12,6 +13,7 @@
     "src",
     "tsconfig.json",
     "README.md",
+    "LICENSE",
     ".env.example"
   ],
   "bin": {
@@ -26,17 +28,17 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.1",
-    "@upstash/box": "^0.1.36",
-    "nanoid": "^5.1.9",
-    "tsx": "^4.21.0",
+    "@upstash/box": "^0.7.10",
+    "nanoid": "^5.1.16",
+    "tsx": "^4.23.15",
     "yaml": "^2.8.3",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
-    "@typescript-eslint/eslint-plugin": "^8.58.2",
-    "@typescript-eslint/parser": "^8.58.2",
-    "eslint": "^10.2.1",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
+    "eslint": "^10.14.0",
     "typescript": "^6.0.3"
   }
 }

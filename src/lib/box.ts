@@ -1,5 +1,5 @@
 import { Box, Agent, ClaudeCode, OpenAICodex, BoxApiKey } from "@upstash/box";
-import { requireBoxApiKey, requireGitReadToken } from "./auth";
+import { requireBoxApiKey } from "./auth";
 
 export type BoxInstance = Awaited<ReturnType<typeof Box.create>>;
 
@@ -99,10 +99,7 @@ export async function cancelAllBoxRuns(
         const running = runs.filter((r) => r.status === "running");
         for (const run of running) {
           try {
-            const requester = (box as unknown as {
-              _request: (method: string, path: string, options?: { body?: unknown; timeout?: number }) => Promise<unknown>;
-            })._request;
-            await requester("POST", `/v2/box/${box.id}/runs/${run.id}/cancel`, {
+            await box._request("POST", `/v2/box/${box.id}/runs/${run.id}/cancel`, {
               timeout: 5_000,
             });
             cancelled++;
@@ -122,22 +119,32 @@ export async function cancelAllBoxRuns(
   return { total, failed, cancelled };
 }
 
-export const DEFAULT_MODEL_KEY = "Opus_4_6";
+/** Names of user-level env vars the Box account injects into every box. */
+export async function listAccountEnvKeys(): Promise<string[]> {
+  try {
+    return Object.keys(await Box.listEnv({ apiKey: requireBoxApiKey() }));
+  } catch {
+    return [];
+  }
+}
+
+export const DEFAULT_MODEL_KEY = "Opus_5_5";
+export const FAST_MODEL_KEY = "Haiku_5_5";
 
 // ── Model registry ────────────────────────────────────────────────
 export interface ModelEntry {
   key: string;
   value: string;
-  runner: Agent;
+  harness: Agent;
   provider: "claude" | "openai";
 }
 
 const CLAUDE_MODELS: ModelEntry[] = Object.entries(ClaudeCode).map(
-  ([key, value]) => ({ key, value, runner: Agent.ClaudeCode, provider: "claude" as const })
+  ([key, value]) => ({ key, value, harness: Agent.ClaudeCode, provider: "claude" as const })
 );
 
 const OPENAI_MODELS: ModelEntry[] = Object.entries(OpenAICodex).map(
-  ([key, value]) => ({ key, value, runner: Agent.Codex, provider: "openai" as const })
+  ([key, value]) => ({ key, value, harness: Agent.Codex, provider: "openai" as const })
 );
 
 export const AVAILABLE_MODELS: ModelEntry[] = [...CLAUDE_MODELS, ...OPENAI_MODELS];
@@ -148,21 +155,21 @@ function resolveModelEntry(key?: string): ModelEntry {
   return AVAILABLE_MODELS.find((m) => m.key === key) ?? fallback;
 }
 
-export async function createReviewerBox(modelKey?: string) {
+/**
+ * Pass `gitToken` only for private repositories. setupRepo() removes it from
+ * the box before any agent or repository code runs.
+ */
+export async function createReviewerBox(modelKey?: string, gitToken?: string) {
   const entry = resolveModelEntry(modelKey);
-  const gitReadToken = requireGitReadToken();
-  const boxApiKey = requireBoxApiKey();
   const box = await Box.create({
-    apiKey: boxApiKey,
+    apiKey: requireBoxApiKey(),
     runtime: "node",
     agent: {
-      runner: entry.runner as string,
-      model: entry.value as string,
+      harness: entry.harness,
+      model: entry.value,
       apiKey: BoxApiKey.UpstashKey,
     },
-    git: {
-      token: gitReadToken,
-    },
+    ...(gitToken ? { git: { token: gitToken } } : {}),
   });
   trackBox(box);
   return box;
@@ -184,24 +191,44 @@ export async function setupRepo(
     throw new Error("Invalid commit SHA received for diff generation");
   }
 
+  const git = async (args: string[]) => {
+    const res = await box.git.exec({ args });
+    if (res.exit_code !== 0) {
+      throw new Error(`git ${args[0]} failed in box (exit ${res.exit_code})`);
+    }
+  };
+  const sh = async (command: string, what: string) => {
+    const run = await box.exec.command(command);
+    if (run.exitCode !== 0) {
+      throw new Error(`${what} failed in box (exit ${run.exitCode})`);
+    }
+  };
+
   await box.git.clone({ repo: `https://github.com/${owner}/${repo}` });
   await box.cd(repo);
 
   if (options?.prNumber !== undefined) {
-    await box.git.exec({
-      args: ["fetch", "origin", `pull/${options.prNumber}/head:pr-${options.prNumber}`],
-    });
+    await git(["fetch", "origin", `pull/${options.prNumber}/head:pr-${options.prNumber}`]);
     await box.git.checkout({ branch: `pr-${options.prNumber}` });
   } else {
     // Ref mode: fetch both SHAs explicitly and check out head
-    await box.git.exec({ args: ["fetch", "origin", baseSha] });
-    await box.git.exec({ args: ["fetch", "origin", headSha] });
-    await box.git.exec({ args: ["checkout", headSha] });
+    await git(["fetch", "origin", baseSha]);
+    await git(["fetch", "origin", headSha]);
+    await git(["checkout", headSha]);
   }
 
   // Prepare diff artifacts for focused review
-  await box.exec.command(
+  await sh(
     `git diff --name-only ${baseSha}...${headSha} > /workspace/home/changed_files.txt && ` +
-      `git diff ${baseSha}...${headSha} > /workspace/home/pr.patch`
+      `git diff ${baseSha}...${headSha} > /workspace/home/pr.patch`,
+    "Diff generation"
+  );
+
+  // Box stores git credentials in plaintext (git credential store + gh CLI
+  // config). Remove them before the agent or any repository code runs.
+  await sh(
+    "rm -f ~/.git-credentials ~/.config/gh/hosts.yml && " +
+      "test ! -e ~/.git-credentials && test ! -e ~/.config/gh/hosts.yml",
+    "Credential cleanup"
   );
 }

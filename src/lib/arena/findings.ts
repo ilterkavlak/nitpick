@@ -1,4 +1,4 @@
-import { generateId } from "../utils";
+import { generateId, stripControlChars } from "../utils";
 import type { Finding, AnyRole, Severity } from "../types";
 
 const findings = new Map<string, Finding[]>();
@@ -49,7 +49,18 @@ export function normalizeFinding(
   };
 }
 
+function sanitizeFinding(f: Finding): void {
+  f.category = stripControlChars(f.category);
+  f.title = stripControlChars(f.title);
+  f.description = stripControlChars(f.description);
+  f.recommendation = stripControlChars(f.recommendation);
+  if (f.filePath) f.filePath = stripControlChars(f.filePath);
+  if (f.evidence) f.evidence = stripControlChars(f.evidence);
+}
+
+/** Sanitizes the finding in place, so callers can publish the same object. */
 export async function saveFinding(finding: Finding): Promise<boolean> {
+  sanitizeFinding(finding);
   const list = findings.get(finding.arenaId) ?? [];
 
   // Check for duplicate by dedupeKey

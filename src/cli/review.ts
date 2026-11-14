@@ -31,9 +31,10 @@ import { scanDependencies } from "../lib/scanners/dependencies";
 import { scanWithLinter } from "../lib/scanners/linter";
 import { submitPrReview } from "../lib/github-review";
 import type { PostProgress } from "../lib/github-review";
-import { cancelAllBoxRuns, cleanupAllBoxes, getActiveBoxCount } from "../lib/box";
+import { cancelAllBoxRuns, cleanupAllBoxes, getActiveBoxCount, listAccountEnvKeys } from "../lib/box";
 import {
   ensureBoxApiKeyInteractive,
+  getGitReadToken,
   requireBoxApiKey,
   requireGitReadToken,
   requireGitReviewToken,
@@ -125,12 +126,15 @@ export interface ReviewResult {
   exitCode: number;
 }
 
-function computeExitCode(
+export function computeExitCode(
   mode: ExitOnMode,
   verdict: Verdict | null,
-  acceptedFindings: Finding[]
+  acceptedFindings: Finding[],
+  allReviewersFailed = false
 ): number {
   if (mode === "none") return 0;
+  // Fail closed: a gate must not pass when no AI reviewer actually ran.
+  if (allReviewersFailed) return 1;
   if (mode === "findings") {
     return acceptedFindings.length > 0 ? 2 : 0;
   }
@@ -175,16 +179,26 @@ export async function runReview(
     }
     await ensureBoxApiKeyInteractive();
   }
-  requireGitReadToken();
+  const hasReadToken = Boolean(getGitReadToken());
   if (postReview) {
     requireGitReviewToken();
   }
   status.ok(
     "Environment validated",
-    postReview
-      ? "Box API key, GitHub read token, GitHub review token"
-      : "Box API key, GitHub read token"
+    ["Box API key", hasReadToken && "GitHub read token", postReview && "GitHub review token"]
+      .filter(Boolean)
+      .join(", ")
   );
+  if (!hasReadToken) {
+    status.warn("No GitHub read token: only public repositories can be reviewed");
+  }
+
+  const accountEnvKeys = await listAccountEnvKeys();
+  if (accountEnvKeys.length > 0) {
+    status.warn(
+      `Box account env vars are visible to repository code and agents in every review box: ${accountEnvKeys.join(", ")}`
+    );
+  }
 
   const { owner, repo } = target;
   const prNumber = target.kind === "pr" ? target.prNumber : undefined;
@@ -230,6 +244,9 @@ export async function runReview(
     doneMeta(`${session.baseSha.slice(0, 7)}...${session.headSha.slice(0, 7)}`);
   }
 
+  // Only private repositories need a GitHub token inside the box.
+  const boxGitToken = session.isPrivate ? requireGitReadToken() : undefined;
+
   status.ok("Review session created", session.id.slice(0, 8));
   status.gap();
 
@@ -261,6 +278,7 @@ export async function runReview(
     baseSha: session.baseSha,
     headSha: session.headSha,
     config: reviewerConfigs?.[role],
+    gitToken: boxGitToken,
   }));
 
   // SIGINT handler for graceful shutdown
@@ -330,6 +348,7 @@ export async function runReview(
 
   let prSummary: PrSummary | undefined;
   let reviewerFailures = false;
+  let allReviewersFailed = false;
   let lastReviewUrl: string | undefined;
 
   // State tracked for the final ReviewResult
@@ -351,7 +370,7 @@ export async function runReview(
     hadReviewerFailures: reviewerFailures,
     interrupted,
     reviewUrl: lastReviewUrl,
-    exitCode: computeExitCode(exitOnMode, verdict, acceptedFindings),
+    exitCode: computeExitCode(exitOnMode, verdict, acceptedFindings, allReviewersFailed),
   });
 
   const postReviewToGitHub = async (
@@ -469,6 +488,7 @@ export async function runReview(
           const runSummary = () =>
             generatePrSummary(owner, repo, session.baseSha, session.headSha, {
               prNumber,
+              gitToken: boxGitToken,
             }).catch(() => undefined);
 
           if (!useDashboard) {
@@ -556,6 +576,7 @@ export async function runReview(
             {
               prNumber,
               commands: linterCommands,
+              gitToken: boxGitToken,
               onActivity: useDashboard ? () => pingWorkerActivity("linter") : undefined,
             }
           );
@@ -641,6 +662,7 @@ export async function runReview(
       }
       if (hasFailures) {
         reviewerFailures = true;
+        allReviewersFailed = !Object.values(reviewers).some((r) => r.status === "completed");
         status.warn("Some reviewers failed");
       }
     }
@@ -692,6 +714,7 @@ export async function runReview(
       {
         prNumber,
         reviewerModelKey: primaryReviewerModel,
+        gitToken: boxGitToken,
         onActivity: useDashboard ? () => pingWorkerActivity("verifier") : undefined,
       }
     );

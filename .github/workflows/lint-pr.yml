@@ -31,3 +31,12 @@ jobs:
 
       - name: Run lint
         run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high

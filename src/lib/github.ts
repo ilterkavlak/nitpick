@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getGitReadToken } from "./auth";
+import { stripControlChars } from "./utils";
 
 export interface PrMetadata {
   title: string;
@@ -11,6 +12,7 @@ export interface PrMetadata {
   changedFiles: number;
   additions: number;
   deletions: number;
+  isPrivate: boolean;
 }
 
 export interface GitHubRepo {
@@ -82,7 +84,7 @@ export async function fetchUserRepos(): Promise<GitHubRepo[]> {
         fullName: r.full_name,
         owner: r.owner.login,
         name: r.name,
-        description: r.description ?? "",
+        description: stripControlChars(r.description ?? ""),
         isPrivate: r.private,
         updatedAt: r.updated_at,
         openIssuesCount: r.open_issues_count,
@@ -117,11 +119,11 @@ export async function fetchOpenPrs(owner: string, repo: string): Promise<GitHubP
 
   return parsed.map((pr) => ({
     number: pr.number,
-    title: pr.title,
+    title: stripControlChars(pr.title),
     author: pr.user?.login ?? "unknown",
     updatedAt: pr.updated_at,
-    headBranch: pr.head.ref,
-    baseBranch: pr.base.ref,
+    headBranch: stripControlChars(pr.head.ref),
+    baseBranch: stripControlChars(pr.base.ref),
     draft: pr.draft,
     url: pr.html_url,
   }));
@@ -133,6 +135,7 @@ const githubPrSchema = z.object({
   base: z.object({
     sha: z.string(),
     ref: z.string(),
+    repo: z.object({ private: z.boolean() }),
   }),
   head: z.object({
     sha: z.string(),
@@ -175,16 +178,22 @@ export async function fetchPrMetadata(
   const data = githubPrSchema.parse(raw);
 
   return {
-    title: data.title,
+    title: stripControlChars(data.title),
     author: data.user?.login ?? "unknown",
     baseSha: data.base.sha,
     headSha: data.head.sha,
-    baseBranch: data.base.ref,
-    headBranch: data.head.ref,
+    baseBranch: stripControlChars(data.base.ref),
+    headBranch: stripControlChars(data.head.ref),
     changedFiles: data.changed_files,
     additions: data.additions,
     deletions: data.deletions,
+    isPrivate: data.base.repo.private,
   };
+}
+
+export async function fetchRepoIsPrivate(owner: string, repo: string): Promise<boolean> {
+  const res = await githubGet(`https://api.github.com/repos/${owner}/${repo}`);
+  return z.object({ private: z.boolean() }).parse(await res.json()).private;
 }
 
 export interface CompareMetadata {

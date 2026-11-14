@@ -14,6 +14,7 @@ export interface ArenaSession {
   baseSha: string;
   headSha: string;
   selectedRoles: ReviewerRole[];
+  isPrivate: boolean;
   status: ArenaStatus;
   createdAt: string;
   completedAt?: string;
@@ -105,6 +106,7 @@ export interface WorkerPayload {
   headSha: string;
   prNumber?: number;
   config?: ReviewerConfig;
+  gitToken?: string;
 }
 
 export interface PrSummary {

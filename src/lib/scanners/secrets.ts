@@ -37,10 +37,10 @@ const SECRET_PATTERNS: SecretPattern[] = [
   { name: "Basic Auth", pattern: /Basic\s+[A-Za-z0-9+/=]{20,}/g, severity: "high" },
 
   // Database connection strings
-  { name: "Database URL with Credentials", pattern: /(?:postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@[^\s'"]+/gi, severity: "critical" },
+  { name: "Database URL with Credentials", pattern: /(?:postgres|mysql|mongodb|redis):\/\/[^:@/\s'"]{1,256}:[^@/\s'"]{1,256}@[^\s'"]+/gi, severity: "critical" },
 
   // JWT tokens
-  { name: "JWT Token", pattern: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g, severity: "high" },
+  { name: "JWT Token", pattern: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g, severity: "high" },
 ];
 
 // Files to skip (common false-positive sources)
@@ -117,12 +117,11 @@ export function scanSecretsInDiff(arenaId: string, diff: string): Finding[] {
         if (seen.has(key)) continue;
         seen.add(key);
 
-        // Mask the matched secret for evidence
+        // Evidence never includes the source line: other secrets (or a
+        // single-line key body) may sit next to the match.
         sp.pattern.lastIndex = 0;
         const match = sp.pattern.exec(hunk.content);
-        const evidence = match
-          ? hunk.content.replace(match[0], match[0].slice(0, 8) + "..." + match[0].slice(-4))
-          : hunk.content.slice(0, 80);
+        const evidence = `${match ? match[0].slice(0, 4) : ""}… (redacted)`;
 
         findings.push({
           id: generateId(),

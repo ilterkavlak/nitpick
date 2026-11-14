@@ -5,6 +5,7 @@ import { normalizeFinding, saveFinding } from "../arena/findings";
 import { publishEvent } from "../arena/events";
 import { updateReviewerStatus } from "../arena/status";
 import type { WorkerPayload } from "../types";
+import { stripControlChars } from "../utils";
 
 interface ExecuteReviewerOptions {
   shouldStop?: () => boolean;
@@ -15,7 +16,7 @@ export async function executeReviewerJob(
   payload: WorkerPayload,
   options?: ExecuteReviewerOptions
 ) {
-  const { arenaId, role, owner, repo, prNumber, baseSha, headSha, config } = payload;
+  const { arenaId, role, owner, repo, prNumber, baseSha, headSha, config, gitToken } = payload;
   const shouldStop = options?.shouldStop;
   const onActivity = options?.onActivity;
 
@@ -34,7 +35,7 @@ export async function executeReviewerJob(
       return;
     }
 
-    box = await createReviewerBox(config?.model);
+    box = await createReviewerBox(config?.model, gitToken);
 
     // Clone and checkout PR (or ref range)
     await setupRepo(box, owner, repo, baseSha, headSha, { prNumber });
@@ -74,9 +75,12 @@ export async function executeReviewerJob(
       return;
     }
 
+    const summary =
+      run.result?.summary !== undefined ? stripControlChars(run.result.summary) : undefined;
+
     // Mark completed
     await updateReviewerStatus(arenaId, role, "completed", {
-      summary: run.result?.summary,
+      summary,
       cost: run.cost
         ? {
             inputTokens: run.cost.inputTokens,
@@ -96,11 +100,11 @@ export async function executeReviewerJob(
             totalUsd: run.cost.totalUsd,
           }
         : undefined,
-      summary: run.result?.summary,
+      summary,
     });
   } catch (error) {
     const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
+      error instanceof Error ? stripControlChars(error.message) : "Unknown error";
     if (shouldStop?.()) {
       await updateReviewerStatus(arenaId, role, "cancelled");
     } else {

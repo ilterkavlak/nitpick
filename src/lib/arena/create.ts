@@ -1,6 +1,6 @@
 import { generateId } from "../utils";
 import type { ArenaSession, ReviewerRole, ReviewerRun } from "../types";
-import { fetchCompareMetadata, fetchPrMetadata } from "../github";
+import { fetchCompareMetadata, fetchPrMetadata, fetchRepoIsPrivate } from "../github";
 import { setArena, setReviewers } from "./status";
 
 function initReviewerRuns(arenaId: string, roles: ReviewerRole[]): void {
@@ -34,6 +34,7 @@ export async function createArena(
     baseSha: metadata.baseSha,
     headSha: metadata.headSha,
     selectedRoles,
+    isPrivate: metadata.isPrivate,
     status: "queued",
     createdAt: now,
   };
@@ -51,7 +52,10 @@ export async function createArenaFromRefs(
   headRef: string,
   selectedRoles: ReviewerRole[]
 ): Promise<ArenaSession> {
-  const metadata = await fetchCompareMetadata(owner, repo, baseRef, headRef);
+  const [metadata, isPrivate] = await Promise.all([
+    fetchCompareMetadata(owner, repo, baseRef, headRef),
+    fetchRepoIsPrivate(owner, repo),
+  ]);
   const id = generateId();
   const now = new Date().toISOString();
 
@@ -65,6 +69,7 @@ export async function createArenaFromRefs(
     baseSha: metadata.baseSha,
     headSha: metadata.headSha,
     selectedRoles,
+    isPrivate,
     status: "queued",
     createdAt: now,
   };

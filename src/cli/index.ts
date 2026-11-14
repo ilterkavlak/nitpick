@@ -312,7 +312,7 @@ function releaseStdin(): void {
 process.on("SIGTERM", async () => {
   console.error("\nReceived SIGTERM, cleaning up boxes...");
   await cleanupAllBoxes();
-  process.exit(0);
+  process.exit(143);
 });
 
 main().catch(async (err) => {

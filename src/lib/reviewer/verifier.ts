@@ -1,10 +1,11 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { createReviewerBox, setupRepo, deleteTrackedBox } from "../box";
 import type { Finding } from "../types";
+import { stripControlChars } from "../utils";
 
-// Verifier uses a different provider than the reviewers (OpenAI GPT-5.x latest)
-const VERIFIER_DEFAULT_MODEL = "GPT_5_3_Codex";
-const VERIFIER_FALLBACK_MODEL = "Opus_4_6";
+// Verifier uses a different provider than the reviewers
+const VERIFIER_DEFAULT_MODEL = "GPT_6_1_Sol";
+const VERIFIER_FALLBACK_MODEL = "Opus_5_5";
 
 const verifierResponseSchema = z.object({
   verifications: z.array(
@@ -168,6 +169,7 @@ export async function verifyFindings(
   options: {
     prNumber?: number;
     reviewerModelKey?: string;
+    gitToken?: string;
     onActivity?: () => void;
   } = {}
 ): Promise<{ verified: Finding[]; rejected: Finding[]; summary: string }> {
@@ -175,9 +177,9 @@ export async function verifyFindings(
     return { verified: [], rejected: [], summary: "No findings to verify." };
   }
 
-  const { prNumber, reviewerModelKey, onActivity } = options;
+  const { prNumber, reviewerModelKey, gitToken, onActivity } = options;
   const verifierModel = pickVerifierModel(reviewerModelKey);
-  const box = await createReviewerBox(verifierModel);
+  const box = await createReviewerBox(verifierModel, gitToken);
 
   try {
     await setupRepo(box, owner, repo, baseSha, headSha, { prNumber });
@@ -219,7 +221,7 @@ export async function verifyFindings(
         rejected.push({
           ...finding,
           verified: false,
-          verifierNote: v.note,
+          verifierNote: stripControlChars(v.note),
         });
         continue;
       }
@@ -227,7 +229,7 @@ export async function verifyFindings(
       const updated: Finding = {
         ...finding,
         verified: true,
-        verifierNote: v.note,
+        verifierNote: stripControlChars(v.note),
       };
 
       if (v.status === "adjusted") {
@@ -255,7 +257,7 @@ export async function verifyFindings(
     return {
       verified: deduped,
       rejected: [...rejected, ...dupRejected],
-      summary: run.result.summary,
+      summary: stripControlChars(run.result.summary),
     };
   } catch {
     return {
